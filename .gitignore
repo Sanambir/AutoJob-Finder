@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+venv311/
+*.log
+
+# Environment & secrets
+.env
+backend/.env
+backend/.config_state.json
+
+# Node
+node_modules/
+dist/
+.vercel/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
