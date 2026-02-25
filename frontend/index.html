@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResumeFlow AI – Automated Job Matching</title>
+  <meta name="description"
+    content="AI-powered job discovery and document tailoring. Automatically finds jobs, scores matches, and emails resume suggestions." />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            brand: { 400: '#f87070', 500: '#e94560', 600: '#cc3350' },
+            navy: { 800: '#0f1724', 900: '#090e18' },
+          },
+          animation: {
+            'fade-in': 'fadeIn .3s ease both',
+            'slide-up': 'slideUp .35s ease both',
+          },
+          keyframes: {
+            fadeIn: { from: { opacity: 0 }, to: { opacity: 1 } },
+            slideUp: { from: { opacity: 0, transform: 'translateY(14px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <script type="importmap">
+  {
+    "imports": {
+      "react":            "https://esm.sh/react@18",
+      "react-dom":        "https://esm.sh/react-dom@18",
+      "react-dom/client": "https://esm.sh/react-dom@18/client"
+    }
+  }
+  </script>
+
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    body {
+      background: #090e18;
+    }
+
+    .glass {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+
+    .glass-hover:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.13);
+    }
+
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 9px;
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      outline: none;
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 9px;
+      background: linear-gradient(90deg, #e94560 var(--pct, 75%), rgba(255, 255, 255, 0.1) var(--pct, 75%));
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #e94560;
+      box-shadow: 0 0 0 3px rgba(233, 69, 96, .25);
+      margin-top: -6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body class="font-sans text-slate-200 min-h-screen">
+
+  <script type="module">
+    import { createElement as h, useState, useEffect, useRef, useCallback } from 'react';
+    import { createRoot } from 'react-dom/client';
+
+    const API = 'http://localhost:8000/api';
+    async function apiFetch(path, opts = {}) {
+      const res = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json', ...opts.headers }, ...opts });
+      if (!res.ok) { const e = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(e.detail || 'API error'); }
+      return res.json();
+    }
+
+    // ── MatchRing ─────────────────────────────────────────────────────────────────
+    function MatchRing({ score, size = 72, sw = 7, pulse = false }) {
+      const r = (size - sw) / 2, circ = 2 * Math.PI * r;
+      const offset = circ - ((score || 0) / 100) * circ;
+      const color = (score || 0) >= 75 ? '#22c55e' : (score || 0) >= 50 ? '#f59e0b' : '#ef4444';
+      return h('svg', { width: size, height: size, className: pulse ? 'animate-pulse' : '' },
+        h('circle', { cx: size / 2, cy: size / 2, r, fill: 'none', stroke: 'rgba(255,255,255,0.07)', strokeWidth: sw }),
+        h('circle', {
+          cx: size / 2, cy: size / 2, r, fill: 'none', stroke: color, strokeWidth: sw,
+          strokeDasharray: circ, strokeDashoffset: offset, strokeLinecap: 'round',
+          transform: `rotate(-90 ${size / 2} ${size / 2})`,
+          style: { transition: 'stroke-dashoffset 1s ease,stroke .5s ease' },
+        }),
+        h('text', { x: size / 2, y: size / 2 + 5, textAnchor: 'middle', fill: color, fontSize: size * .21, fontWeight: 700, fontFamily: 'Inter' },
+          score != null ? `${score}%` : '–'),
+      );
+    }
+
+    // ── StatusBadge ───────────────────────────────────────────────────────────────
+    const STATUS = {
+      pending: ['Pending', 'text-slate-400 bg-slate-800'],
+      queued: ['Queued', 'text-blue-400 bg-blue-900/40'],
+      scoring: ['Scoring…', 'text-violet-400 bg-violet-900/40 animate-pulse'],
+      tailoring: ['Tailoring…', 'text-amber-400 bg-amber-900/40 animate-pulse'],
+      emailing: ['Sending…', 'text-sky-400 bg-sky-900/40 animate-pulse'],
+      scored: ['Scored', 'text-indigo-400 bg-indigo-900/40'],
+      emailed: ['Emailed ✓', 'text-green-400 bg-green-900/40'],
+      below_threshold: ['Below Threshold', 'text-orange-400 bg-orange-900/40'],
+      error: ['Error', 'text-red-400 bg-red-900/40'],
+    };
+    function StatusBadge({ status }) {
+      const [label, cls] = STATUS[status] || STATUS.pending;
+      return h('span', { className: `text-xs font-semibold px-2.5 py-1 rounded-full ${cls}` }, label);
+    }
+
+    // ── JobCard ───────────────────────────────────────────────────────────────────
+    function JobCard({ job, onSelect, selected }) {
+      const [tab, setTab] = useState('suggestions');
+      const active = ['scoring', 'tailoring', 'emailing', 'queued'].includes(job.status);
+      const platformIcon = { linkedin: '🔷', indeed: '🔵', glassdoor: '🟢', zip_recruiter: '🟠', manual: '✍️' };
+      const hasContent = job.resume_suggestions || job.cover_letter || job.missing_skills?.length > 0;
+
+      return h('div', {
+        className: `glass rounded-xl transition-all duration-200 animate-slide-up ${selected ? 'ring-1 ring-brand-500/60' : ''}`,
+      },
+        // ── Header (always visible, clickable) ──
+        h('div', {
+          onClick: () => onSelect(job),
+          className: 'flex items-start justify-between gap-4 p-5 cursor-pointer rounded-xl hover:bg-white/[0.03] transition',
+        },
+          h('div', { className: 'flex-1 min-w-0' },
+            h('div', { className: 'flex items-center gap-2 mb-0.5' },
+              h('span', { className: 'text-base' }, platformIcon[job.platform] || '💼'),
+              h('p', { className: 'font-semibold text-white truncate' }, job.title || 'Untitled Role'),
+            ),
+            h('p', { className: 'text-sm text-slate-400 truncate' },
+              [job.company, job.location].filter(Boolean).join(' · ') || 'Unknown'),
+            h('div', { className: 'flex items-center flex-wrap gap-2 mt-3' },
+              h(StatusBadge, { status: job.status }),
+              job.date_posted && h('span', { className: 'text-xs text-slate-600' }, job.date_posted),
+              job.url && h('a', {
+                href: job.url, target: '_blank', rel: 'noreferrer',
+                onClick: e => e.stopPropagation(), className: 'text-xs text-blue-400 hover:underline'
+              }, 'View JD ↗'),
+              hasContent && h('span', { className: 'text-xs text-slate-500 ml-1' }, selected ? '▴ collapse' : '▾ view results'),
+            ),
+            job.reasoning && h('p', { className: 'text-xs text-slate-500 mt-2 line-clamp-2' }, job.reasoning),
+            job.error && h('p', { className: 'text-xs text-red-400 mt-1' }, `⚠ ${job.error}`),
+          ),
+          h('div', { className: 'flex-shrink-0' }, h(MatchRing, { score: job.match_score, size: 66, pulse: active })),
+        ),
+
+        // ── Expandable AI results panel ──
+        selected && hasContent && h('div', { className: 'border-t border-white/[0.06] px-5 pb-5 pt-4' },
+          h('div', { className: 'flex gap-2 mb-4' },
+            [
+              job.resume_suggestions && ['suggestions', '✏️ Resume Tips'],
+              job.cover_letter && ['cover', '📄 Cover Letter'],
+              job.missing_skills?.length > 0 && ['missing', '🎯 Skill Gaps'],
+            ].filter(Boolean).map(([id, label]) =>
+              h('button', {
+                key: id,
+                onClick: e => { e.stopPropagation(); setTab(id); },
+                className: `px-3 py-1.5 rounded-lg text-xs font-semibold transition
+                  ${tab === id ? 'bg-brand-500 text-white' : 'glass text-slate-400 hover:text-white'}`,
+              }, label)
+            ),
+          ),
+          tab === 'suggestions' && job.resume_suggestions && h('div', {
+            onClick: e => e.stopPropagation(),
+            className: 'glass rounded-xl p-4 text-xs leading-6 text-slate-300 whitespace-pre-wrap max-h-80 overflow-y-auto',
+          }, job.resume_suggestions),
+          tab === 'cover' && job.cover_letter && h('div', {
+            onClick: e => e.stopPropagation(),
+            className: 'glass rounded-xl p-4 text-xs leading-6 text-slate-300 whitespace-pre-wrap max-h-80 overflow-y-auto',
+          }, job.cover_letter),
+          tab === 'missing' && job.missing_skills?.length > 0 && h('div', {
+            onClick: e => e.stopPropagation(),
+            className: 'flex flex-wrap gap-2',
+          },
+            job.missing_skills.map(s =>
+              h('span', { key: s, className: 'px-3 py-1.5 bg-red-900/30 border border-red-500/20 text-red-400 rounded-full text-xs' }, s)
+            )
+          ),
+        ),
+      );
+    }
+
+    // ── UploadPanel (manual pipeline) ─────────────────────────────────────────────
+    function UploadPanel({ onDone, threshold }) {
+      const [form, setForm] = useState({ applicant_name: '', job_title: '', company_name: '', job_url: '', recipient_email: '', resume: '', job_description: '' });
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const [success, setSuccess] = useState('');
+      const up = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+
+      async function submit(e) {
+        e.preventDefault(); setLoading(true); setError(''); setSuccess('');
+        try {
+          const r = await apiFetch('/pipeline', { method: 'POST', body: JSON.stringify(form) });
+          setSuccess(`Pipeline queued! Job ID: ${r.job_id}`);
+          setForm({ applicant_name: '', job_title: '', company_name: '', job_url: '', recipient_email: '', resume: '', job_description: '' });
+          onDone();
+        } catch (err) { setError(err.message); } finally { setLoading(false); }
+      }
+
+      const inp = 'w-full glass rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-brand-500 transition';
+      const lbl = 'block text-xs font-medium text-slate-400 mb-1';
+
+      return h('div', { className: 'animate-fade-in' },
+        h('h2', { className: 'text-xl font-bold text-white mb-5' }, '✍️ Manual Pipeline'),
+        h('p', { className: 'text-sm text-slate-500 mb-5' }, 'Paste a specific job description to score, tailor and email directly.'),
+        h('form', { onSubmit: submit, className: 'space-y-4' },
+          h('div', { className: 'grid grid-cols-2 gap-3' },
+            h('div', {}, h('label', { className: lbl }, 'Your Name'), h('input', { className: inp, value: form.applicant_name, onChange: up('applicant_name'), placeholder: 'Jane Smith', required: true })),
+            h('div', {}, h('label', { className: lbl }, 'Recipient Email'), h('input', { className: inp, type: 'email', value: form.recipient_email, onChange: up('recipient_email'), placeholder: 'you@email.com', required: true })),
+          ),
+          h('div', { className: 'grid grid-cols-2 gap-3' },
+            h('div', {}, h('label', { className: lbl }, 'Job Title'), h('input', { className: inp, value: form.job_title, onChange: up('job_title'), placeholder: 'Senior Engineer', required: true })),
+            h('div', {}, h('label', { className: lbl }, 'Company'), h('input', { className: inp, value: form.company_name, onChange: up('company_name'), placeholder: 'Acme Corp', required: true })),
+          ),
+          h('div', {}, h('label', { className: lbl }, 'Job Posting URL'), h('input', { className: inp, value: form.job_url, onChange: up('job_url'), placeholder: 'https://…' })),
+          h('div', {}, h('label', { className: lbl }, 'Master Resume'), h('textarea', { className: `${inp} resize-none`, rows: 6, value: form.resume, onChange: up('resume'), placeholder: 'Paste full resume…', required: true })),
+          h('div', {}, h('label', { className: lbl }, 'Job Description'), h('textarea', { className: `${inp} resize-none`, rows: 6, value: form.job_description, onChange: up('job_description'), placeholder: 'Paste job description…', required: true })),
+          h('div', { className: 'glass rounded-lg px-4 py-3 text-xs text-slate-400' },
+            'Active threshold: ', h('span', { className: 'text-brand-500 font-bold' }, `${threshold}%`), ' — below this score, no email is sent.'),
+          error && h('p', { className: 'text-red-400 text-sm bg-red-900/20 rounded-lg px-4 py-2' }, `❌ ${error}`),
+          success && h('p', { className: 'text-green-400 text-sm bg-green-900/20 rounded-lg px-4 py-2' }, `✅ ${success}`),
+          h('button', {
+            type: 'submit', disabled: loading,
+            className: `w-full py-3 rounded-xl font-semibold text-sm transition-all
+          ${loading ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white shadow-lg shadow-brand-500/20 hover:-translate-y-0.5'}`,
+          }, loading ? '⏳ Running…' : '⚡ Run Pipeline'),
+        ),
+      );
+    }
+
+    // ── JobSearchPanel ────────────────────────────────────────────────────────────
+    function JobSearchPanel({ onDone }) {
+      const PLATFORMS = ['linkedin', 'indeed', 'glassdoor', 'zip_recruiter'];
+      const PLATFORM_LABELS = { linkedin: 'LinkedIn 🔷', indeed: 'Indeed 🔵', glassdoor: 'Glassdoor 🟢', zip_recruiter: 'ZipRecruiter 🟠' };
+
+      const [form, setForm] = useState({
+        resume: '', recipient_email: '', applicant_name: '',
+        keywords: '', location: 'Remote',
+        platforms: ['indeed', 'linkedin'],
+        results_per_site: 10, hours_old: 72, auto_pipeline: true,
+      });
+      const [loading, setLoading] = useState(false);
+      const [message, setMessage] = useState('');
+      const [error, setError] = useState('');
+
+      const up = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+      const togglePlatform = p => setForm(f => ({
+        ...f, platforms: f.platforms.includes(p) ? f.platforms.filter(x => x !== p) : [...f.platforms, p]
+      }));
+
+      async function submit(e) {
+        e.preventDefault(); setLoading(true); setError(''); setMessage('');
+        try {
+          const r = await apiFetch('/search', { method: 'POST', body: JSON.stringify(form) });
+          setMessage(r.message);
+          setTimeout(onDone, 1800);
+        } catch (err) { setError(err.message); } finally { setLoading(false); }
+      }
+
+      const inp = 'w-full glass rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-brand-500 transition';
+      const lbl = 'block text-xs font-medium text-slate-400 mb-1';
+
+      return h('div', { className: 'animate-fade-in' },
+        h('h2', { className: 'text-xl font-bold text-white mb-1' }, '🔍 Job Search'),
+        h('p', { className: 'text-sm text-slate-500 mb-6' }, 'Scrape LinkedIn, Indeed, Glassdoor & ZipRecruiter. Gemini scores each match and auto-emails the ones above your threshold.'),
+
+        h('form', { onSubmit: submit, className: 'space-y-5' },
+
+          // Credentials
+          h('div', { className: 'glass rounded-xl p-4 space-y-4' },
+            h('p', { className: 'text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2' }, '👤 Your Details'),
+            h('div', { className: 'grid grid-cols-2 gap-3' },
+              h('div', {}, h('label', { className: lbl }, 'Your Name'), h('input', { className: inp, value: form.applicant_name, onChange: up('applicant_name'), placeholder: 'Jane Smith', required: true })),
+              h('div', {}, h('label', { className: lbl }, 'Email to Notify'), h('input', { className: inp, type: 'email', value: form.recipient_email, onChange: up('recipient_email'), placeholder: 'you@email.com', required: true })),
+            ),
+            h('div', {}, h('label', { className: lbl }, 'Master Resume'), h('textarea', { className: `${inp} resize-none`, rows: 5, value: form.resume, onChange: up('resume'), placeholder: 'Paste your full resume here — Gemini uses it to score every discovered job…', required: true })),
+          ),
+
+          // Search params
+          h('div', { className: 'glass rounded-xl p-4 space-y-4' },
+            h('p', { className: 'text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2' }, '🔎 Search Parameters'),
+            h('div', { className: 'grid grid-cols-2 gap-3' },
+              h('div', {}, h('label', { className: lbl }, 'Keywords'), h('input', { className: inp, value: form.keywords, onChange: up('keywords'), placeholder: 'e.g. Python developer, ML engineer' })),
+              h('div', {}, h('label', { className: lbl }, 'Location'), h('input', { className: inp, value: form.location, onChange: up('location'), placeholder: 'Remote, San Francisco CA…' })),
+            ),
+            h('div', {},
+              h('label', { className: `${lbl} mb-2` }, 'Platforms'),
+              h('div', { className: 'grid grid-cols-2 gap-2' },
+                PLATFORMS.map(p =>
+                  h('button', {
+                    key: p, type: 'button',
+                    onClick: () => togglePlatform(p),
+                    className: `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition border
+                  ${form.platforms.includes(p)
+                        ? 'bg-brand-500/15 border-brand-500/40 text-white'
+                        : 'border-white/[0.06] text-slate-500 hover:text-slate-300 hover:border-white/10'}`,
+                  },
+                    h('span', {
+                      className: `w-4 h-4 rounded flex items-center justify-center text-xs border flex-shrink-0 transition
+                  ${form.platforms.includes(p) ? 'bg-brand-500 border-brand-500 text-white' : 'border-slate-600'}`
+                    },
+                      form.platforms.includes(p) ? '✓' : ''),
+                    PLATFORM_LABELS[p],
+                  )
+                ),
+              ),
+            ),
+            h('div', { className: 'grid grid-cols-2 gap-3' },
+              h('div', {},
+                h('label', { className: lbl }, `Results per platform: ${form.results_per_site}`),
+                h('input', {
+                  type: 'range', min: 3, max: 25, value: form.results_per_site,
+                  style: { '--pct': `${(form.results_per_site - 3) / 22 * 100}%` },
+                  onChange: e => setForm(f => ({ ...f, results_per_site: +e.target.value })),
+                  className: 'w-full mt-1'
+                }),
+              ),
+              h('div', {},
+                h('label', { className: lbl }, `Posted within: ${form.hours_old}h`),
+                h('input', {
+                  type: 'range', min: 12, max: 168, step: 12, value: form.hours_old,
+                  style: { '--pct': `${(form.hours_old - 12) / 156 * 100}%` },
+                  onChange: e => setForm(f => ({ ...f, hours_old: +e.target.value })),
+                  className: 'w-full mt-1'
+                }),
+              ),
+            ),
+          ),
+
+          // Auto-pipeline toggle
+          h('div', {
+            onClick: () => setForm(f => ({ ...f, auto_pipeline: !f.auto_pipeline })),
+            className: 'flex items-start gap-3 glass rounded-xl p-4 cursor-pointer transition hover:border-white/15',
+          },
+            h('div', { className: `w-10 h-6 rounded-full flex items-center px-1 transition-colors flex-shrink-0 ${form.auto_pipeline ? 'bg-brand-500' : 'bg-slate-700'}` },
+              h('div', { className: `w-4 h-4 rounded-full bg-white shadow transition-transform ${form.auto_pipeline ? 'translate-x-4' : 'translate-x-0'}` }),
+            ),
+            h('div', {},
+              h('p', { className: 'font-medium text-white text-sm' }, 'Auto-Pipeline'),
+              h('p', { className: 'text-xs text-slate-500 mt-0.5' },
+                form.auto_pipeline
+                  ? 'Jobs above threshold → automatically tailored and emailed.'
+                  : 'Jobs will only be scored — no tailoring or email.'),
+            ),
+          ),
+
+          error && h('p', { className: 'text-red-400 text-sm bg-red-900/20 rounded-lg px-4 py-2' }, `❌ ${error}`),
+          message && h('div', { className: 'glass rounded-xl p-4 border-green-500/30' },
+            h('p', { className: 'text-green-400 text-sm font-medium' }, '✅ Search started!'),
+            h('p', { className: 'text-slate-400 text-xs mt-1' }, message),
+          ),
+
+          h('button', {
+            type: 'submit', disabled: loading || form.platforms.length === 0,
+            className: `w-full py-3.5 rounded-xl font-bold text-sm transition-all
+          ${loading || form.platforms.length === 0
+                ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white shadow-lg shadow-brand-500/25 hover:-translate-y-0.5'}`,
+          }, loading ? '⏳ Searching…' : `🔍 Scan Now (${form.platforms.length} platform${form.platforms.length !== 1 ? 's' : ''})`),
+        ),
+      );
+    }
+
+    // ── Dashboard ─────────────────────────────────────────────────────────────────
+    function Dashboard({ threshold }) {
+      const [jobs, setJobs] = useState([]);
+      const [selected, setSelected] = useState(null);
+      const [view, setView] = useState('feed'); // feed | search | manual
+      const loadJobs = useCallback(async () => {
+        try { const d = await apiFetch('/jobs'); setJobs(d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))); } catch { }
+      }, []);
+      useEffect(() => {
+        loadJobs(); const iv = setInterval(() => {
+          if (jobs.some(j => ['queued', 'scoring', 'tailoring', 'emailing'].includes(j.status))) loadJobs();
+        }, 2000); return () => clearInterval(iv);
+      }, [jobs, loadJobs]);
+
+      const counts = {
+        emailed: jobs.filter(j => j.status === 'emailed').length,
+        active: jobs.filter(j => ['queued', 'scoring', 'tailoring', 'emailing'].includes(j.status)).length,
+        below: jobs.filter(j => j.status === 'below_threshold').length,
+      };
+
+      return h('div', { className: 'flex flex-col gap-6' },
+        // Header
+        h('div', { className: 'flex items-center justify-between' },
+          h('div', {},
+            h('h1', { className: 'text-2xl font-bold text-white' }, 'Job Pipeline'),
+            h('div', { className: 'flex gap-4 mt-1' },
+              h('span', { className: 'text-xs text-slate-500' }, `${jobs.length} total`),
+              counts.active > 0 && h('span', { className: 'text-xs text-violet-400 animate-pulse' }, `${counts.active} processing…`),
+              counts.emailed > 0 && h('span', { className: 'text-xs text-green-400' }, `${counts.emailed} emailed`),
+              counts.below > 0 && h('span', { className: 'text-xs text-orange-400' }, `${counts.below} below threshold`),
+            ),
+          ),
+          h('div', { className: 'flex gap-2' },
+            [['feed', '📋 Feed'], ['search', '🔍 Search'], ['manual', '✍️ Manual']].map(([id, label]) =>
+              h('button', {
+                key: id, onClick: () => setView(id),
+                className: `px-4 py-2 rounded-lg text-sm font-medium transition
+              ${view === id ? 'bg-brand-500 text-white' : 'glass text-slate-400 hover:text-white'}`,
+              }, label)
+            ),
+          ),
+        ),
+
+        view === 'search' && h(JobSearchPanel, { onDone: () => { loadJobs(); setView('feed'); } }),
+        view === 'manual' && h(UploadPanel, { onDone: () => { loadJobs(); setView('feed'); }, threshold }),
+
+        view === 'feed' && h('div', { className: 'flex-1 overflow-y-auto' },
+          jobs.length === 0
+            ? h('div', { className: 'flex flex-col items-center justify-center h-60 text-center' },
+              h('div', { className: 'text-5xl mb-4' }, '🔍'),
+              h('p', { className: 'text-slate-400 font-medium' }, 'No jobs in the pipeline yet'),
+              h('p', { className: 'text-slate-600 text-sm mt-1' }, 'Use Job Search or Manual to get started'),
+              h('div', { className: 'flex gap-3 mt-5' },
+                h('button', { onClick: () => setView('search'), className: 'px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 text-white font-semibold text-sm hover:-translate-y-0.5 transition-transform shadow-lg shadow-brand-500/25' }, '🔍 Search Jobs'),
+                h('button', { onClick: () => setView('manual'), className: 'px-5 py-2.5 rounded-xl glass text-slate-300 font-semibold text-sm hover:text-white transition' }, '✍️ Manual'),
+              ),
+            )
+            : h('div', { className: 'grid gap-3' },
+              jobs.map(j => h(JobCard, { key: j.id, job: j, selected: selected?.id === j.id, onSelect: setSelected }))
+            ),
+        ),
+      );
+    }
+
+    // ── ConfigPanel ───────────────────────────────────────────────────────────────
+    function ConfigPanel({ threshold, setThreshold }) {
+      const [local, setLocal] = useState(threshold);
+      const [saving, setSaving] = useState(false);
+      const [saved, setSaved] = useState(false);
+      const timer = useRef(null);
+      useEffect(() => {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(async () => {
+          if (local === threshold) return;
+          setSaving(true); setSaved(false);
+          try { await apiFetch('/config', { method: 'PATCH', body: JSON.stringify({ match_threshold: local }) }); setThreshold(local); setSaved(true); setTimeout(() => setSaved(false), 2000); }
+          finally { setSaving(false); }
+        }, 600);
+        return () => clearTimeout(timer.current);
+      }, [local]);
+
+      const col = local >= 75 ? 'text-green-400' : local >= 50 ? 'text-amber-400' : 'text-red-400';
+
+      return h('div', { className: 'animate-fade-in space-y-7' },
+        h('div', {},
+          h('h2', { className: 'text-xl font-bold text-white' }, '⚙️ Configuration'),
+          h('p', { className: 'text-sm text-slate-500 mt-0.5' }, 'Adjust the match threshold in real-time'),
+        ),
+        h('div', { className: 'glass rounded-2xl p-6 space-y-5' },
+          h('div', { className: 'flex items-start justify-between' },
+            h('div', {},
+              h('h3', { className: 'font-semibold text-white' }, 'Match Threshold'),
+              h('p', { className: 'text-xs text-slate-500 mt-1' },
+                'Jobs at or above this score get their resume suggestions + cover letter emailed automatically.'),
+            ),
+            h('div', { className: `text-4xl font-bold tabular-nums ${col}` }, `${local}%`),
+          ),
+          h('input', {
+            type: 'range', min: 0, max: 100, value: local, onChange: e => setLocal(+e.target.value),
+            style: { '--pct': `${local}%`, width: '100%' }
+          }),
+          h('div', { className: 'flex justify-between text-xs text-slate-600 px-0.5' },
+            ['0%', '25%', '50%', '75%', '100%'].map(v => h('span', { key: v }, v))),
+          h('div', { className: 'flex gap-2' },
+            [60, 70, 75, 80, 85, 90].map(v =>
+              h('button', {
+                key: v, onClick: () => setLocal(v),
+                className: `flex-1 py-1.5 rounded-lg text-xs font-semibold transition
+              ${local === v ? 'bg-brand-500 text-white' : 'glass text-slate-400 hover:text-white'}`,
+              }, `${v}%`)
+            ),
+          ),
+          saving && h('p', { className: 'text-xs text-blue-400 animate-pulse' }, '⏳ Saving…'),
+          saved && h('p', { className: 'text-xs text-green-400' }, '✅ Threshold updated'),
+        ),
+        h('div', { className: 'grid grid-cols-3 gap-3' },
+          [['🤖', 'Scoring AI', 'Gemini 1.5 Flash'], ['✍️', 'Tailoring AI', 'Gemini 1.5 Flash'], ['📧', 'Email', 'SMTP + Cover PDF']].map(
+            ([icon, title, desc]) => h('div', { key: title, className: 'glass rounded-xl p-4 text-center' },
+              h('div', { className: 'text-2xl mb-2' }, icon),
+              h('p', { className: 'text-xs font-semibold text-white' }, title),
+              h('p', { className: 'text-xs text-slate-500 mt-0.5' }, desc),
+            )
+          ),
+        ),
+        h('div', { className: 'glass rounded-xl p-5 space-y-3' },
+          h('h3', { className: 'text-sm font-semibold text-white' }, '📧 What you receive per match'),
+          h('ul', { className: 'text-sm text-slate-400 space-y-2 list-none' },
+            ['🔗 Job posting link (prominent button in email)',
+              '✏️ Resume edit suggestions — numbered, specific, role-tailored',
+              '📄 Cover Letter PDF attachment — personalised by Gemini',
+              '📊 Match score breakdown and reasoning',
+            ].map(t => h('li', { key: t, className: 'flex items-start gap-2' }, h('span', {}, t))),
+          ),
+        ),
+      );
+    }
+
+    // ── ReviewSuite ───────────────────────────────────────────────────────────────
+    function ReviewSuite() {
+      const [jobs, setJobs] = useState([]);
+      const [jobId, setJobId] = useState('');
+      const [job, setJob] = useState(null);
+      const [tab, setTab] = useState('suggestions');
+
+      useEffect(() => {
+        apiFetch('/jobs').then(d => {
+          const p = d.filter(j => j.resume_suggestions || j.cover_letter);
+          setJobs(p); if (p.length && !jobId) setJobId(p[0].id);
+        }).catch(() => { });
+      }, []);
+      useEffect(() => { if (!jobId) return; apiFetch(`/jobs/${jobId}`).then(setJob).catch(() => { }); }, [jobId]);
+
+      const pane = 'glass rounded-xl p-5 overflow-y-auto text-sm leading-7 text-slate-300 whitespace-pre-wrap h-[480px]';
+
+      return h('div', { className: 'animate-fade-in space-y-5' },
+        h('div', { className: 'flex items-center justify-between flex-wrap gap-3' },
+          h('div', {},
+            h('h2', { className: 'text-xl font-bold text-white' }, '🔬 Review Suite'),
+            h('p', { className: 'text-sm text-slate-500 mt-0.5' }, 'Review AI-generated suggestions and cover letters'),
+          ),
+          jobs.length > 0 && h('select', {
+            value: jobId, onChange: e => setJobId(e.target.value),
+            className: 'glass text-sm text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500'
+          },
+            jobs.map(j => h('option', { key: j.id, value: j.id, style: { background: '#0f1724' } },
+              `${j.title} @ ${j.company} (${j.match_score}%)`)),
+          ),
+        ),
+
+        jobs.length === 0
+          ? h('div', { className: 'flex flex-col items-center justify-center h-64 text-center' },
+            h('div', { className: 'text-5xl mb-4' }, '📝'),
+            h('p', { className: 'text-slate-400 font-medium' }, 'No reviewed documents yet'),
+            h('p', { className: 'text-slate-600 text-sm mt-1' }, 'Run a pipeline with a high-scoring job to see results here'),
+          )
+          : job && h('div', { className: 'space-y-4' },
+            // Stats bar
+            h('div', { className: 'flex items-center gap-5 glass rounded-xl px-5 py-3' },
+              h(MatchRing, { score: job.match_score, size: 52, sw: 5 }),
+              h('div', { className: 'flex-1' },
+                h('p', { className: 'font-bold text-white' }, `${job.title} @ ${job.company}`),
+                job.location && h('p', { className: 'text-xs text-slate-500' }, job.location),
+                job.reasoning && h('p', { className: 'text-xs text-slate-500 mt-0.5 line-clamp-2' }, job.reasoning),
+              ),
+              job.url && h('a', {
+                href: job.url, target: '_blank', rel: 'noreferrer',
+                className: 'px-4 py-2 rounded-lg text-xs font-semibold bg-brand-500/15 border border-brand-500/30 text-brand-400 hover:bg-brand-500/25 transition'
+              }, 'View Job ↗'),
+            ),
+
+            // Tabs
+            h('div', { className: 'flex gap-2' },
+              [['suggestions', '✏️ Resume Suggestions'], ['cover', '📄 Cover Letter'], ['missing', '🎯 Missing Skills']].map(
+                ([id, label]) => h('button', {
+                  key: id, onClick: () => setTab(id),
+                  className: `px-4 py-2 rounded-lg text-sm font-medium transition
+                  ${tab === id ? 'bg-brand-500 text-white' : 'glass text-slate-400 hover:text-white'}`,
+                }, label)
+              ),
+            ),
+
+            tab === 'suggestions' && h('div', {},
+              h('p', { className: 'text-xs text-slate-500 mb-2 uppercase tracking-wider font-semibold' }, 'Gemini\'s recommended edits for this role:'),
+              h('div', { className: pane }, job.resume_suggestions || 'No suggestions available.'),
+            ),
+
+            tab === 'cover' && h('div', {},
+              h('p', { className: 'text-xs text-green-500 mb-2 uppercase tracking-wider font-semibold' }, '✨ AI-Generated Cover Letter — also sent as PDF attachment'),
+              h('div', { className: pane }, job.cover_letter || 'No cover letter generated.'),
+            ),
+
+            tab === 'missing' && h('div', { className: pane },
+              job.missing_skills?.length > 0
+                ? h('div', { className: 'space-y-2' },
+                  h('p', { className: 'text-sm font-semibold text-slate-400 mb-3' }, `${job.missing_skills.length} skills identified as gaps:`),
+                  h('div', { className: 'flex flex-wrap gap-2' },
+                    job.missing_skills.map(s => h('span', { key: s, className: 'px-3 py-1.5 bg-red-900/30 border border-red-500/20 text-red-400 rounded-full text-sm' }, s))
+                  )
+                )
+                : h('p', { className: 'text-slate-500' }, 'No missing skills identified — great match!'),
+            ),
+          ),
+      );
+    }
+
+    // ── Sidebar ───────────────────────────────────────────────────────────────────
+    function Sidebar({ current, setCurrent, jobCount }) {
+      const nav = [
+        { id: 'dashboard', icon: '📊', label: 'Dashboard', badge: jobCount > 0 ? jobCount : null },
+        { id: 'review', icon: '🔬', label: 'Review Suite' },
+        { id: 'config', icon: '⚙️', label: 'Config' },
+      ];
+      return h('aside', { className: 'w-56 flex-shrink-0 glass border-r border-white/[0.06] flex flex-col pt-6 pb-4' },
+        h('div', { className: 'px-5 mb-8' },
+          h('div', { className: 'flex items-center gap-2.5' },
+            h('div', {
+              className: 'w-9 h-9 rounded-xl flex items-center justify-center text-lg',
+              style: { background: 'linear-gradient(135deg,#0f3460,#e94560)' }
+            }, '⚡'),
+            h('div', {},
+              h('p', { className: 'font-bold text-white text-sm leading-tight' }, 'ResumeFlow AI'),
+              h('p', { className: 'text-[10px] text-slate-500 leading-tight' }, 'Powered by Gemini'),
+            ),
+          ),
+        ),
+        h('nav', { className: 'flex-1 px-3 space-y-1' },
+          nav.map(({ id, icon, label, badge }) =>
+            h('button', {
+              key: id, onClick: () => setCurrent(id),
+              className: `w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all
+            ${current === id
+                  ? 'bg-brand-500/15 text-brand-400 border border-brand-500/25'
+                  : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'}`,
+            },
+              h('span', { className: 'flex items-center gap-3' },
+                h('span', { className: 'text-base' }, icon),
+                label,
+              ),
+              badge && h('span', { className: 'text-xs bg-brand-500/20 text-brand-400 px-1.5 py-0.5 rounded-full font-mono' }, badge),
+            )
+          ),
+        ),
+        h('div', { className: 'px-5 pt-4 border-t border-white/[0.06]' },
+          h('p', { className: 'text-[10px] text-slate-600' }, 'Gemini 1.5 Flash · jobspy'),
+        ),
+      );
+    }
+
+    // ── App ───────────────────────────────────────────────────────────────────────
+    function App() {
+      const [page, setPage] = useState('dashboard');
+      const [threshold, setThreshold] = useState(75);
+      const [jobCount, setJobCount] = useState(0);
+
+      useEffect(() => { apiFetch('/config').then(d => setThreshold(d.match_threshold)).catch(() => { }); }, []);
+
+      // Refresh job count badge every 3s
+      useEffect(() => {
+        const iv = setInterval(() => { apiFetch('/jobs').then(d => setJobCount(d.length)).catch(() => { }); }, 3000);
+        return () => clearInterval(iv);
+      }, []);
+
+      const content = {
+        dashboard: h(Dashboard, { threshold }),
+        review: h(ReviewSuite),
+        config: h(ConfigPanel, { threshold, setThreshold }),
+      }[page];
+
+      return h('div', { className: 'flex h-screen overflow-hidden' },
+        h(Sidebar, { current: page, setCurrent: setPage, jobCount }),
+        h('main', { className: 'flex-1 overflow-y-auto p-8' },
+          h('div', { className: 'max-w-4xl mx-auto' }, content)),
+      );
+    }
+
+    createRoot(document.getElementById('root')).render(h(App));
+  </script>
+
+  <div id="root"></div>
+</body>
+
+</html>
