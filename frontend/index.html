@@ -110,8 +110,17 @@
     import { createRoot } from 'react-dom/client';
 
     const API = 'http://localhost:8000/api';
+    const getToken = () => localStorage.getItem('rf_token');
+    const setToken = (t) => t ? localStorage.setItem('rf_token', t) : localStorage.removeItem('rf_token');
+    const getUser = () => { try { return JSON.parse(localStorage.getItem('rf_user') || 'null'); } catch { return null; } };
+    const setUser = (u) => u ? localStorage.setItem('rf_user', JSON.stringify(u)) : localStorage.removeItem('rf_user');
+
     async function apiFetch(path, opts = {}) {
-      const res = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json', ...opts.headers }, ...opts });
+      const token = getToken();
+      const headers = { 'Content-Type': 'application/json', ...opts.headers };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`${API}${path}`, { ...opts, headers });
+      if (res.status === 401) { setToken(null); setUser(null); window.location.reload(); return; }
       if (!res.ok) { const e = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(e.detail || 'API error'); }
       return res.json();
     }
@@ -152,11 +161,12 @@
     }
 
     // ── JobCard ───────────────────────────────────────────────────────────────────
-    function JobCard({ job, onSelect, selected }) {
+    function JobCard({ job, onSelect, selected, savedIds = new Set(), onToggleSave }) {
       const [tab, setTab] = useState('suggestions');
       const active = ['scoring', 'tailoring', 'emailing', 'queued'].includes(job.status);
       const platformIcon = { linkedin: '🔷', indeed: '🔵', glassdoor: '🟢', zip_recruiter: '🟠', manual: '✍️' };
       const hasContent = job.resume_suggestions || job.cover_letter || job.missing_skills?.length > 0;
+      const isSaved = savedIds.has(job.id);
 
       return h('div', {
         className: `glass rounded-xl transition-all duration-200 animate-slide-up ${selected ? 'ring-1 ring-brand-500/60' : ''}`,
@@ -185,7 +195,14 @@
             job.reasoning && h('p', { className: 'text-xs text-slate-500 mt-2 line-clamp-2' }, job.reasoning),
             job.error && h('p', { className: 'text-xs text-red-400 mt-1' }, `⚠ ${job.error}`),
           ),
-          h('div', { className: 'flex-shrink-0' }, h(MatchRing, { score: job.match_score, size: 66, pulse: active })),
+          h('div', { className: 'flex-shrink-0 flex flex-col items-center gap-2' },
+            h(MatchRing, { score: job.match_score, size: 66, pulse: active }),
+            onToggleSave && job.match_score != null && h('button', {
+              onClick: e => { e.stopPropagation(); onToggleSave(job.id, isSaved); },
+              title: isSaved ? 'Unsave' : 'Save job',
+              className: `text-xl transition hover:scale-110 ${isSaved ? 'text-yellow-400' : 'text-slate-600 hover:text-yellow-400'}`,
+            }, isSaved ? '★' : '☆'),
+          ),
         ),
 
         // ── Expandable AI results panel ──
@@ -407,7 +424,7 @@
     }
 
     // ── Dashboard ─────────────────────────────────────────────────────────────────
-    function Dashboard({ threshold }) {
+    function Dashboard({ threshold, savedIds = new Set(), onToggleSave }) {
       const [jobs, setJobs] = useState([]);
       const [selected, setSelected] = useState(null);
       const [view, setView] = useState('feed'); // feed | search | manual
@@ -464,7 +481,7 @@
               ),
             )
             : h('div', { className: 'grid gap-3' },
-              jobs.map(j => h(JobCard, { key: j.id, job: j, selected: selected?.id === j.id, onSelect: setSelected }))
+              jobs.map(j => h(JobCard, { key: j.id, job: j, selected: selected?.id === j.id, onSelect: setSelected, savedIds, onToggleSave }))
             ),
         ),
       );
@@ -631,20 +648,143 @@
       );
     }
 
+    // ── AuthPage ──────────────────────────────────────────────────────────────────
+    function AuthPage({ onAuth }) {
+      const [mode, setMode] = useState('login');
+      const [form, setForm] = useState({ email: '', password: '', name: '' });
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+      const submit = async e => {
+        e.preventDefault(); setError(''); setLoading(true);
+        try {
+          const payload = mode === 'register'
+            ? { email: form.email, password: form.password, name: form.name }
+            : { email: form.email, password: form.password };
+          const data = await apiFetch(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(payload) });
+          setToken(data.access_token);
+          setUser({ id: data.user_id, name: data.name, email: data.email });
+          onAuth();
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
+      };
+      const field = (key, label, type = 'text') => h('div', { className: 'flex flex-col gap-1.5' },
+        h('label', { className: 'text-xs text-slate-400 font-medium uppercase tracking-wider' }, label),
+        h('input', {
+          type, value: form[key], autoComplete: key === 'password' ? 'current-password' : key,
+          onChange: e => setForm(f => ({ ...f, [key]: e.target.value })),
+          className: 'glass rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-brand-500 transition',
+          placeholder: key === 'email' ? 'you@example.com' : key === 'name' ? 'Your name' : '••••••••',
+        }),
+      );
+      return h('div', { className: 'min-h-screen flex items-center justify-center p-6' },
+        h('div', { className: 'w-full max-w-md animate-slide-up' },
+          h('div', { className: 'text-center mb-10' },
+            h('div', { className: 'w-16 h-16 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4', style: { background: 'linear-gradient(135deg,#0f3460,#e94560)' } }, '⚡'),
+            h('h1', { className: 'text-2xl font-bold text-white' }, 'ResumeFlow AI'),
+            h('p', { className: 'text-slate-500 text-sm mt-1' }, 'AI-powered job discovery & tailoring'),
+          ),
+          h('div', { className: 'glass rounded-2xl p-8' },
+            h('div', { className: 'flex rounded-xl glass p-1 mb-7' },
+              ['login', 'register'].map(m => h('button', {
+                key: m, onClick: () => { setMode(m); setError(''); },
+                className: `flex-1 py-2 rounded-lg text-sm font-semibold transition ${mode === m ? 'bg-brand-500 text-white' : 'text-slate-400 hover:text-white'}`,
+              }, m === 'login' ? 'Sign In' : 'Create Account'))
+            ),
+            h('form', { onSubmit: submit, className: 'space-y-4' },
+              mode === 'register' && field('name', 'Full Name'),
+              field('email', 'Email', 'email'),
+              field('password', 'Password', 'password'),
+              error && h('p', { className: 'text-red-400 text-xs text-center' }, error),
+              h('button', {
+                type: 'submit', disabled: loading,
+                className: 'w-full py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold rounded-xl transition mt-2'
+              },
+                loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── SavedFeed ─────────────────────────────────────────────────────────────────
+    function SavedFeed({ savedIds, onToggleSave }) {
+      const [jobs, setJobs] = useState([]);
+      const [selected, setSelected] = useState(null);
+      const [loading, setLoading] = useState(true);
+      useEffect(() => { apiFetch('/saved').then(setJobs).catch(() => { }).finally(() => setLoading(false)); }, []);
+      const handleUnsave = async (jobId) => { await onToggleSave(jobId, true); setJobs(j => j.filter(x => x.id !== jobId)); };
+      if (loading) return h('div', { className: 'text-center text-slate-500 mt-20' }, 'Loading…');
+      if (!jobs.length) return h('div', { className: 'text-center mt-20' },
+        h('p', { className: 'text-5xl mb-4' }, '☆'),
+        h('p', { className: 'text-slate-400 font-semibold' }, 'No saved jobs yet'),
+        h('p', { className: 'text-slate-600 text-sm mt-1' }, 'Bookmark jobs from the feed using the ★ button'),
+      );
+      return h('div', { className: 'space-y-3' },
+        h('h2', { className: 'text-xl font-bold text-white mb-4' }, `⭐ Saved Jobs (${jobs.length})`),
+        jobs.map(job => h(JobCard, {
+          key: job.id, job, selected: selected === job.id,
+          onSelect: j => setSelected(s => s === j.id ? null : j.id),
+          savedIds, onToggleSave: (id) => handleUnsave(id),
+        }))
+      );
+    }
+
+    // ── SchedulePicker ────────────────────────────────────────────────────────────
+    function SchedulePicker() {
+      const [sched, setSched] = useState(null);
+      const [form, setForm] = useState({ keywords: '', location: 'Remote', run_time: '09:00', enabled: false });
+      const [saving, setSaving] = useState(false);
+      const [msg, setMsg] = useState('');
+      useEffect(() => {
+        apiFetch('/schedule').then(d => { if (d) { setSched(d); setForm({ keywords: d.keywords, location: d.location, run_time: d.run_time, enabled: d.enabled }); } }).catch(() => { });
+      }, []);
+      const save = async () => {
+        setSaving(true); setMsg('');
+        try {
+          const d = await apiFetch('/schedule', { method: 'PUT', body: JSON.stringify({ ...form, platforms: ['indeed', 'linkedin', 'glassdoor'], results_per_site: 10, hours_old: 72, auto_pipeline: true }) });
+          setSched(d); setMsg(d.enabled ? `✅ Scheduled daily at ${d.run_time} UTC` : '⏸️ Saved (disabled)');
+        } catch (e) { setMsg(`❌ ${e.message}`); } finally { setSaving(false); }
+      };
+      const del = async () => { await apiFetch('/schedule', { method: 'DELETE' }); setSched(null); setForm({ keywords: '', location: 'Remote', run_time: '09:00', enabled: false }); setMsg('🗑️ Removed'); };
+      const inp = (key, label, type = 'text', placeholder = '') => h('div', { className: 'flex flex-col gap-1.5 flex-1' },
+        h('label', { className: 'text-xs text-slate-400 uppercase tracking-wider' }, label),
+        h('input', {
+          type, value: form[key], placeholder, onChange: e => setForm(f => ({ ...f, [key]: e.target.value })),
+          className: 'glass rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-brand-500'
+        }),
+      );
+      return h('div', { className: 'glass rounded-2xl p-6 space-y-5' },
+        h('h3', { className: 'font-semibold text-white text-base flex items-center gap-2' }, '⏰ Daily Auto-Search'),
+        h('p', { className: 'text-xs text-slate-500' }, 'Automatically run a job search once a day. Times are UTC.'),
+        h('div', { className: 'space-y-4' },
+          inp('keywords', 'Keywords', 'text', 'e.g. software engineer python'),
+          h('div', { className: 'flex gap-3' }, inp('location', 'Location', 'text', 'Remote'), inp('run_time', 'Run Time (UTC)', 'time')),
+          h('label', { className: 'flex items-center gap-3 cursor-pointer' },
+            h('input', { type: 'checkbox', checked: form.enabled, onChange: e => setForm(f => ({ ...f, enabled: e.target.checked })), className: 'w-4 h-4 rounded accent-brand-500' }),
+            h('span', { className: 'text-sm text-slate-300' }, 'Enable daily auto-search'),
+          ),
+        ),
+        h('div', { className: 'flex gap-3 items-center flex-wrap' },
+          h('button', { onClick: save, disabled: saving, className: 'px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-xl transition disabled:opacity-50' }, saving ? 'Saving…' : 'Save Schedule'),
+          sched && h('button', { onClick: del, className: 'px-4 py-2.5 glass text-slate-400 hover:text-red-400 text-sm rounded-xl transition' }, 'Remove'),
+          msg && h('span', { className: 'text-xs text-slate-400' }, msg),
+        ),
+        sched && sched.last_run && h('p', { className: 'text-xs text-slate-600' }, `Last run: ${sched.last_run}`),
+      );
+    }
+
     // ── Sidebar ───────────────────────────────────────────────────────────────────
-    function Sidebar({ current, setCurrent, jobCount }) {
+    function Sidebar({ current, setCurrent, jobCount, savedCount, user, onLogout }) {
       const nav = [
         { id: 'dashboard', icon: '📊', label: 'Dashboard', badge: jobCount > 0 ? jobCount : null },
+        { id: 'saved', icon: '⭐', label: 'Saved Jobs', badge: savedCount > 0 ? savedCount : null },
         { id: 'review', icon: '🔬', label: 'Review Suite' },
         { id: 'config', icon: '⚙️', label: 'Config' },
       ];
       return h('aside', { className: 'w-56 flex-shrink-0 glass border-r border-white/[0.06] flex flex-col pt-6 pb-4' },
         h('div', { className: 'px-5 mb-8' },
           h('div', { className: 'flex items-center gap-2.5' },
-            h('div', {
-              className: 'w-9 h-9 rounded-xl flex items-center justify-center text-lg',
-              style: { background: 'linear-gradient(135deg,#0f3460,#e94560)' }
-            }, '⚡'),
+            h('div', { className: 'w-9 h-9 rounded-xl flex items-center justify-center text-lg', style: { background: 'linear-gradient(135deg,#0f3460,#e94560)' } }, '⚡'),
             h('div', {},
               h('p', { className: 'font-bold text-white text-sm leading-tight' }, 'ResumeFlow AI'),
               h('p', { className: 'text-[10px] text-slate-500 leading-tight' }, 'Powered by Gemini'),
@@ -655,49 +795,68 @@
           nav.map(({ id, icon, label, badge }) =>
             h('button', {
               key: id, onClick: () => setCurrent(id),
-              className: `w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all
-            ${current === id
-                  ? 'bg-brand-500/15 text-brand-400 border border-brand-500/25'
-                  : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'}`,
+              className: `w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${current === id ? 'bg-brand-500/15 text-brand-400 border border-brand-500/25' : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'}`,
             },
-              h('span', { className: 'flex items-center gap-3' },
-                h('span', { className: 'text-base' }, icon),
-                label,
-              ),
+              h('span', { className: 'flex items-center gap-3' }, h('span', { className: 'text-base' }, icon), label),
               badge && h('span', { className: 'text-xs bg-brand-500/20 text-brand-400 px-1.5 py-0.5 rounded-full font-mono' }, badge),
             )
           ),
         ),
-        h('div', { className: 'px-5 pt-4 border-t border-white/[0.06]' },
-          h('p', { className: 'text-[10px] text-slate-600' }, 'Gemini 1.5 Flash · jobspy'),
+        h('div', { className: 'px-4 pt-4 border-t border-white/[0.06] space-y-3' },
+          user && h('div', { className: 'flex items-center gap-2' },
+            h('div', { className: 'w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center text-brand-400 text-xs font-bold' }, (user.name || 'U')[0].toUpperCase()),
+            h('div', { className: 'min-w-0' },
+              h('p', { className: 'text-xs text-white font-medium truncate' }, user.name),
+              h('p', { className: 'text-[10px] text-slate-600 truncate' }, user.email),
+            ),
+          ),
+          h('button', { onClick: onLogout, className: 'w-full text-left text-xs text-slate-600 hover:text-red-400 transition px-1' }, '→ Sign out'),
         ),
       );
     }
 
     // ── App ───────────────────────────────────────────────────────────────────────
     function App() {
+      const [authed, setAuthed] = useState(!!getToken());
+      const [user, setUserState] = useState(getUser);
       const [page, setPage] = useState('dashboard');
       const [threshold, setThreshold] = useState(75);
       const [jobCount, setJobCount] = useState(0);
+      const [savedIds, setSavedIds] = useState(new Set());
 
-      useEffect(() => { apiFetch('/config').then(d => setThreshold(d.match_threshold)).catch(() => { }); }, []);
-
-      // Refresh job count badge every 3s
-      useEffect(() => {
-        const iv = setInterval(() => { apiFetch('/jobs').then(d => setJobCount(d.length)).catch(() => { }); }, 3000);
-        return () => clearInterval(iv);
+      const refreshSaved = useCallback(() => {
+        apiFetch('/saved').then(jobs => setSavedIds(new Set(jobs.map(j => j.id)))).catch(() => { });
       }, []);
 
+      useEffect(() => {
+        if (!authed) return;
+        apiFetch('/config').then(d => setThreshold(d.match_threshold)).catch(() => { });
+        refreshSaved();
+        const iv = setInterval(() => { apiFetch('/jobs').then(d => setJobCount(d.length)).catch(() => { }); }, 3000);
+        return () => clearInterval(iv);
+      }, [authed]);
+
+      const handleAuth = () => { setAuthed(true); setUserState(getUser()); };
+      const handleLogout = () => { setToken(null); setUser(null); setAuthed(false); setUserState(null); setSavedIds(new Set()); setJobCount(0); };
+      const handleToggleSave = async (jobId, isSaved) => {
+        try {
+          if (isSaved) { await apiFetch(`/saved/${jobId}`, { method: 'DELETE' }); setSavedIds(s => { const n = new Set(s); n.delete(jobId); return n; }); }
+          else { await apiFetch(`/saved/${jobId}`, { method: 'POST' }); setSavedIds(s => new Set([...s, jobId])); }
+        } catch { /* silently ignore */ }
+      };
+
+      if (!authed) return h(AuthPage, { onAuth: handleAuth });
+
       const content = {
-        dashboard: h(Dashboard, { threshold }),
+        dashboard: h(Dashboard, { threshold, savedIds, onToggleSave: handleToggleSave }),
+        saved: h(SavedFeed, { savedIds, onToggleSave: handleToggleSave }),
         review: h(ReviewSuite),
-        config: h(ConfigPanel, { threshold, setThreshold }),
+        config: h('div', { className: 'space-y-6' }, h(ConfigPanel, { threshold, setThreshold }), h(SchedulePicker)),
       }[page];
 
       return h('div', { className: 'flex h-screen overflow-hidden' },
-        h(Sidebar, { current: page, setCurrent: setPage, jobCount }),
-        h('main', { className: 'flex-1 overflow-y-auto p-8' },
-          h('div', { className: 'max-w-4xl mx-auto' }, content)),
+        h(Sidebar, { current: page, setCurrent: setPage, jobCount, savedCount: savedIds.size, user, onLogout: handleLogout }),
+        h('main', { className: 'flex-1 overflow-y-auto p-8' }, h('div', { className: 'max-w-4xl mx-auto' }, content)),
       );
     }
 
