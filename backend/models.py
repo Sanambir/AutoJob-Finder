@@ -17,6 +17,7 @@ class User(Base):
     name         = Column(String, nullable=False)
     hashed_password = Column(String, nullable=False)
     match_threshold = Column(Integer, default=75)
+    resume_text     = Column(Text, nullable=True)   # last uploaded resume
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
     jobs         = relationship("Job",          back_populates="user", cascade="all, delete-orphan")

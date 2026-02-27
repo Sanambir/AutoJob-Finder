@@ -6,6 +6,7 @@ from database import init_db
 from services.scheduler import scheduler, load_all_schedules
 from routers import score, tailor, email_router, jobs, pipeline, config_router, search
 from routers import auth, saved_jobs, schedule as schedule_router
+from routers import user_router
 
 
 @asynccontextmanager
@@ -46,6 +47,7 @@ app.include_router(search.router,            prefix="/api", tags=["Job Search"])
 app.include_router(config_router.router,     prefix="/api", tags=["Config"])
 app.include_router(saved_jobs.router,        prefix="/api", tags=["Saved Jobs"])
 app.include_router(schedule_router.router,   prefix="/api", tags=["Schedule"])
+app.include_router(user_router.router,       prefix="/api", tags=["User Profile"])
 
 
 @app.get("/health", tags=["Health"])
