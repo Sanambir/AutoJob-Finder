@@ -6,7 +6,11 @@ load_dotenv()
 
 # AI Configuration  (Gemini only — no Anthropic needed)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL   = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-preview-05-20")
+GEMINI_MODEL   = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+
+# Auth
+SECRET_KEY                  = os.getenv("SECRET_KEY", "change-me-in-production-please")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))  # 7 days
 
 # Match Threshold (configurable at runtime)
 MATCH_THRESHOLD = int(os.getenv("MATCH_THRESHOLD", "75"))
