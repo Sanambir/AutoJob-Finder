@@ -6,6 +6,10 @@ from google import genai
 from google.genai import types
 from config import GOOGLE_API_KEY, GEMINI_MODEL
 from services.gemini_retry import gemini_call_with_retry
+import asyncio
+
+# Module-level singleton — created once, reused for every call
+_client = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
 
 SUGGESTIONS_PROMPT = """You are an elite resume coach and ATS specialist. Analyze the resume against the job description and produce a numbered list of **specific, actionable edits** the applicant should make to improve their match score.
 
@@ -59,15 +63,14 @@ async def tailor_documents(
     Returns dict with keys: resume_suggestions (str), cover_letter (str)
     Raises ValueError on missing API key or Gemini errors.
     """
-    if not GOOGLE_API_KEY:
+    if not _client:
         raise ValueError("GOOGLE_API_KEY not configured")
 
-    client = genai.Client(api_key=GOOGLE_API_KEY)
     cfg = types.GenerateContentConfig(temperature=0.4)
     missing = ", ".join(missing_skills) if missing_skills else "none identified"
 
     sugg_response = await gemini_call_with_retry(
-        client.models.generate_content,
+        _client.models.generate_content,
         model=GEMINI_MODEL,
         contents=SUGGESTIONS_PROMPT.format(
             resume=resume,
@@ -78,8 +81,10 @@ async def tailor_documents(
     )
     suggestions = (sugg_response.text or "").strip()
 
+    await asyncio.sleep(1)  # brief pause between the two Gemini calls
+
     cl_response = await gemini_call_with_retry(
-        client.models.generate_content,
+        _client.models.generate_content,
         model=GEMINI_MODEL,
         contents=COVER_LETTER_PROMPT.format(
             name=applicant_name,

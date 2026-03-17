@@ -23,3 +23,7 @@ dist/
 # IDE
 .vscode/
 .idea/
+
+# Local run scripts
+start.sh
+start.bat

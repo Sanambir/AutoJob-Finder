@@ -510,14 +510,29 @@
       const [jobs, setJobs] = useState([]);
       const [selected, setSelected] = useState(null);
       const [view, setView] = useState('feed'); // feed | search | manual
+      const ACTIVE = ['queued', 'scoring', 'tailoring', 'emailing'];
+      const jobsRef = useRef([]);
+
       const loadJobs = useCallback(async () => {
-        try { const d = await apiFetch('/jobs'); setJobs(d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))); } catch { }
+        try {
+          const d = await apiFetch('/jobs');
+          const sorted = d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          setJobs(sorted);
+          jobsRef.current = sorted;
+        } catch { }
       }, []);
+
+      // Single stable interval — reads ref (not state) to avoid re-registering
       useEffect(() => {
-        loadJobs(); const iv = setInterval(() => {
-          if (jobs.some(j => ['queued', 'scoring', 'tailoring', 'emailing'].includes(j.status))) loadJobs();
-        }, 2000); return () => clearInterval(iv);
-      }, [jobs, loadJobs]);
+        loadJobs();
+        const iv = setInterval(() => {
+          if (jobsRef.current.some(j => ACTIVE.includes(j.status))) {
+            loadJobs();
+          }
+          // Interval keeps running but is a no-op once all jobs reach terminal state
+        }, 3000);   // poll every 3s only while active jobs exist
+        return () => clearInterval(iv);
+      }, [loadJobs]);  // loadJobs is stable (useCallback with no deps)
 
       const counts = {
         emailed: jobs.filter(j => j.status === 'emailed').length,
@@ -914,7 +929,12 @@
         if (!authed) return;
         apiFetch('/config').then(d => setThreshold(d.match_threshold)).catch(() => { });
         refreshSaved();
-        const iv = setInterval(() => { apiFetch('/jobs').then(d => setJobCount(d.length)).catch(() => { }); }, 3000);
+        // Badge poll: 8s interval, stops updating when feed is idle
+        const iv = setInterval(() => {
+          apiFetch('/jobs').then(d => {
+            setJobCount(d.length);
+          }).catch(() => {});
+        }, 8000);   // 8s is enough for a status badge
         return () => clearInterval(iv);
       }, [authed]);
 
