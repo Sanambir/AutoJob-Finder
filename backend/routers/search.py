@@ -128,7 +128,8 @@ async def _run_search_pipeline(request: SearchRequest):
         })
         job_ids.append((job_id, job))
 
-    sem = asyncio.Semaphore(5)
+    sem = asyncio.Semaphore(2)   # max 2 concurrent Gemini calls at a time
+    TERMINAL_STATUSES = {"emailed", "scored", "below_threshold", "error"}
 
     async def process_one(job_id, job):
         async with sem:
@@ -148,8 +149,10 @@ async def _run_search_pipeline(request: SearchRequest):
                                status="below_threshold" if score < threshold else "scored")
                 except Exception as e:
                     update_job(job_id, status="error", error=str(e))
+            await asyncio.sleep(1)  # 1-second pause after each job to stay under rate limits
 
     await asyncio.gather(*[process_one(jid, j) for jid, j in job_ids])
+    logger.info("Pipeline complete for user %s — %d jobs processed", request.user_id, len(job_ids))
 
 
 @router.post("/search", response_model=SearchResponse)

@@ -9,6 +9,9 @@ from google.genai import types
 from config import GOOGLE_API_KEY, GEMINI_MODEL
 from services.gemini_retry import gemini_call_with_retry
 
+# Module-level singleton — created once, reused for every call
+_client = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
+
 SCORING_PROMPT = """
 You are an expert ATS (Applicant Tracking System) and career coach. Analyze the following resume against the job description.
 
@@ -39,14 +42,13 @@ async def score_resume(resume: str, job_description: str) -> dict:
     Returns a dict with keys: match_score (int), reasoning (str), missing_skills (list[str])
     Raises ValueError on Gemini/JSON errors.
     """
-    if not GOOGLE_API_KEY:
+    if not _client:
         raise ValueError("GOOGLE_API_KEY not configured")
 
-    client = genai.Client(api_key=GOOGLE_API_KEY)
     prompt = SCORING_PROMPT.format(resume=resume, job_description=job_description)
 
     response = await gemini_call_with_retry(
-        client.models.generate_content,
+        _client.models.generate_content,
         model=GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
