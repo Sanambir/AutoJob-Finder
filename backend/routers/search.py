@@ -97,8 +97,9 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
         )
         update_job(job_id, status="scored" if result.get("status") == "skipped" else "emailed")
     except Exception as e:
-        update_job(job_id, status="error", error=f"Email: {e}")
-        logger.warning("Email failed for job %s: %s", job_id, e)
+        # Email failure is non-fatal — job is still scored and visible in feed
+        logger.warning("Email failed for job %s (still marking scored): %s", job_id, e)
+        update_job(job_id, status="scored", error=f"Email failed: {str(e)[:120]}")
 
 
 async def _run_search_pipeline(request: SearchRequest):
