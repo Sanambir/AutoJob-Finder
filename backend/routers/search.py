@@ -58,7 +58,10 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
 
     update_job(job_id, status="scoring")
     try:
-        sd = await score_resume(resume, job["description"])
+        # Truncate inputs: keep scoring fast and token-efficient
+        resume_trim = resume[:3000]
+        jd_trim = job["description"][:2000]
+        sd = await score_resume(resume_trim, jd_trim)
     except Exception as e:
         update_job(job_id, status="error", error=f"Scoring: {e}")
         logger.warning("Scoring failed for job %s: %s", job_id, e)
@@ -116,6 +119,23 @@ async def _run_search_pipeline(request: SearchRequest):
 
     logger.info("Scraped %d jobs, starting pipeline…", len(raw_jobs))
 
+    # Deduplicate: skip jobs with same title+company already in DB for this user
+    from models import Job as JobModel
+    db_dedup = SessionLocal()
+    try:
+        existing = db_dedup.query(JobModel.title, JobModel.company).filter(JobModel.user_id == request.user_id).all()
+        seen = {(r.title.lower().strip(), r.company.lower().strip()) for r in existing}
+    finally:
+        db_dedup.close()
+
+    unique_jobs = [j for j in raw_jobs if (j["title"].lower().strip(), j["company"].lower().strip()) not in seen]
+    if len(unique_jobs) < len(raw_jobs):
+        logger.info("Deduplication: %d already seen, %d new", len(raw_jobs) - len(unique_jobs), len(unique_jobs))
+    raw_jobs = unique_jobs
+    if not raw_jobs:
+        logger.info("All scraped jobs already in DB — nothing new to process.")
+        return
+
     # Register all jobs in DB
     job_ids = []
     for job in raw_jobs:
@@ -128,8 +148,7 @@ async def _run_search_pipeline(request: SearchRequest):
         })
         job_ids.append((job_id, job))
 
-    sem = asyncio.Semaphore(2)   # max 2 concurrent Gemini calls at a time
-    TERMINAL_STATUSES = {"emailed", "scored", "below_threshold", "error"}
+    sem = asyncio.Semaphore(3)   # 3 concurrent Gemini calls — fast but not spammy
 
     async def process_one(job_id, job):
         async with sem:
@@ -138,7 +157,9 @@ async def _run_search_pipeline(request: SearchRequest):
             else:
                 update_job(job_id, status="scoring")
                 try:
-                    sd = await score_resume(request.resume, job["description"])
+                    resume_trim = request.resume[:3000]
+                    jd_trim = job["description"][:2000]
+                    sd = await score_resume(resume_trim, jd_trim)
                     score = sd["match_score"]
                     db = SessionLocal()
                     user = db.query(User).filter(User.id == request.user_id).first()
@@ -149,7 +170,6 @@ async def _run_search_pipeline(request: SearchRequest):
                                status="below_threshold" if score < threshold else "scored")
                 except Exception as e:
                     update_job(job_id, status="error", error=str(e))
-            await asyncio.sleep(1)  # 1-second pause after each job to stay under rate limits
 
     await asyncio.gather(*[process_one(jid, j) for jid, j in job_ids])
     logger.info("Pipeline complete for user %s — %d jobs processed", request.user_id, len(job_ids))

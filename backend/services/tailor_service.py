@@ -73,15 +73,15 @@ async def tailor_documents(
         _client.models.generate_content,
         model=GEMINI_MODEL,
         contents=SUGGESTIONS_PROMPT.format(
-            resume=resume,
-            job_description=job_description,
+            resume=resume[:3000],
+            job_description=job_description[:2500],
             missing_skills=missing,
         ),
         config=cfg,
     )
     suggestions = (sugg_response.text or "").strip()
 
-    await asyncio.sleep(1)  # brief pause between the two Gemini calls
+    await asyncio.sleep(0.5)  # small breath between the two sequential Gemini calls
 
     cl_response = await gemini_call_with_retry(
         _client.models.generate_content,
@@ -90,8 +90,8 @@ async def tailor_documents(
             name=applicant_name,
             job_title=job_title,
             company=company_name,
-            job_description=job_description,
-            resume_snippet=resume[:1500],
+            job_description=job_description[:2000],
+            resume_snippet=resume[:2000],
         ),
         config=cfg,
     )
