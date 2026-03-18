@@ -163,6 +163,7 @@
     // ── JobCard ───────────────────────────────────────────────────────────────────
     function JobCard({ job, onSelect, selected, savedIds = new Set(), onToggleSave, onDelete }) {
       const [tab, setTab] = useState('suggestions');
+      const [confirmDel, setConfirmDel] = useState(false);
       const [deleting, setDeleting] = useState(false);
       const active = ['scoring', 'tailoring', 'emailing', 'queued'].includes(job.status);
       const platformIcon = { linkedin: '🔷', indeed: '🔵', glassdoor: '🟢', zip_recruiter: '🟠', manual: '✍️' };
@@ -175,12 +176,11 @@
         return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       };
 
-      const handleDelete = async e => {
+      const confirmDelete = async e => {
         e.stopPropagation();
-        if (!confirm(`Remove "${job.title}" from your feed?`)) return;
         setDeleting(true);
         try { await apiFetch(`/jobs/${job.id}`, { method: 'DELETE' }); onDelete?.(job.id); }
-        catch { setDeleting(false); }
+        catch { setDeleting(false); setConfirmDel(false); }
       };
 
       return h('div', {
@@ -219,11 +219,21 @@
                 title: isSaved ? 'Unsave' : 'Save job',
                 className: `text-xl transition hover:scale-110 ${isSaved ? 'text-yellow-400' : 'text-slate-600 hover:text-yellow-400'}`,
               }, isSaved ? '★' : '☆'),
-              onDelete && h('button', {
-                onClick: handleDelete, disabled: deleting,
+              onDelete && !confirmDel && h('button', {
+                onClick: e => { e.stopPropagation(); setConfirmDel(true); },
                 title: 'Remove from feed',
-                className: 'text-lg text-slate-700 hover:text-red-400 transition hover:scale-110 disabled:opacity-40',
-              }, deleting ? '…' : '🗑️'),
+                className: 'text-lg text-slate-700 hover:text-red-400 transition hover:scale-110',
+              }, '🗑️'),
+              onDelete && confirmDel && h('div', { className: 'flex items-center gap-1', onClick: e => e.stopPropagation() },
+                h('button', {
+                  onClick: confirmDelete, disabled: deleting,
+                  className: 'text-xs px-2 py-1 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/40 font-semibold transition disabled:opacity-40',
+                }, deleting ? '…' : '✓'),
+                h('button', {
+                  onClick: e => { e.stopPropagation(); setConfirmDel(false); },
+                  className: 'text-xs px-2 py-1 rounded-lg glass text-slate-400 hover:text-white transition',
+                }, '✗'),
+              ),
             ),
           ),
         ),
