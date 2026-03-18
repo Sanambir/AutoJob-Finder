@@ -13,11 +13,35 @@ from routers import user_router
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
+    _reset_orphaned_jobs()
     load_all_schedules()
     scheduler.start()
     yield
     # Shutdown
     scheduler.shutdown(wait=False)
+
+
+def _reset_orphaned_jobs():
+    """Reset any jobs stuck in active states from a previous server run."""
+    from database import SessionLocal
+    from models import Job
+    from datetime import datetime
+    IN_PROGRESS = ("queued", "scoring", "tailoring", "emailing")
+    db = SessionLocal()
+    try:
+        stuck = db.query(Job).filter(Job.status.in_(IN_PROGRESS)).all()
+        for j in stuck:
+            j.status = "error"
+            j.error = "Server restarted — please run a new search to re-process this job."
+            j.updated_at = datetime.utcnow().isoformat()
+        if stuck:
+            db.commit()
+            import logging
+            logging.getLogger(__name__).warning(
+                "Reset %d orphaned in-progress jobs to error on startup.", len(stuck)
+            )
+    finally:
+        db.close()
 
 
 app = FastAPI(
