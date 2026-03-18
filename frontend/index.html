@@ -161,12 +161,27 @@
     }
 
     // ── JobCard ───────────────────────────────────────────────────────────────────
-    function JobCard({ job, onSelect, selected, savedIds = new Set(), onToggleSave }) {
+    function JobCard({ job, onSelect, selected, savedIds = new Set(), onToggleSave, onDelete }) {
       const [tab, setTab] = useState('suggestions');
+      const [deleting, setDeleting] = useState(false);
       const active = ['scoring', 'tailoring', 'emailing', 'queued'].includes(job.status);
       const platformIcon = { linkedin: '🔷', indeed: '🔵', glassdoor: '🟢', zip_recruiter: '🟠', manual: '✍️' };
       const hasContent = job.resume_suggestions || job.cover_letter || job.missing_skills?.length > 0;
       const isSaved = savedIds.has(job.id);
+
+      const fmtDate = iso => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      };
+
+      const handleDelete = async e => {
+        e.stopPropagation();
+        if (!confirm(`Remove "${job.title}" from your feed?`)) return;
+        setDeleting(true);
+        try { await apiFetch(`/jobs/${job.id}`, { method: 'DELETE' }); onDelete?.(job.id); }
+        catch { setDeleting(false); }
+      };
 
       return h('div', {
         className: `glass rounded-xl transition-all duration-200 animate-slide-up ${selected ? 'ring-1 ring-brand-500/60' : ''}`,
@@ -186,6 +201,7 @@
             h('div', { className: 'flex items-center flex-wrap gap-2 mt-3' },
               h(StatusBadge, { status: job.status }),
               job.date_posted && h('span', { className: 'text-xs text-slate-600' }, job.date_posted),
+              job.created_at && h('span', { className: 'text-xs text-slate-600' }, '🕐 ' + fmtDate(job.created_at)),
               job.url && h('a', {
                 href: job.url, target: '_blank', rel: 'noreferrer',
                 onClick: e => e.stopPropagation(), className: 'text-xs text-blue-400 hover:underline'
@@ -197,11 +213,18 @@
           ),
           h('div', { className: 'flex-shrink-0 flex flex-col items-center gap-2' },
             h(MatchRing, { score: job.match_score, size: 66, pulse: active }),
-            onToggleSave && job.match_score != null && h('button', {
-              onClick: e => { e.stopPropagation(); onToggleSave(job.id, isSaved); },
-              title: isSaved ? 'Unsave' : 'Save job',
-              className: `text-xl transition hover:scale-110 ${isSaved ? 'text-yellow-400' : 'text-slate-600 hover:text-yellow-400'}`,
-            }, isSaved ? '★' : '☆'),
+            h('div', { className: 'flex gap-2' },
+              onToggleSave && job.match_score != null && h('button', {
+                onClick: e => { e.stopPropagation(); onToggleSave(job.id, isSaved); },
+                title: isSaved ? 'Unsave' : 'Save job',
+                className: `text-xl transition hover:scale-110 ${isSaved ? 'text-yellow-400' : 'text-slate-600 hover:text-yellow-400'}`,
+              }, isSaved ? '★' : '☆'),
+              onDelete && h('button', {
+                onClick: handleDelete, disabled: deleting,
+                title: 'Remove from feed',
+                className: 'text-lg text-slate-700 hover:text-red-400 transition hover:scale-110 disabled:opacity-40',
+              }, deleting ? '…' : '🗑️'),
+            ),
           ),
         ),
 
@@ -578,7 +601,7 @@
               ),
             )
             : h('div', { className: 'grid gap-3' },
-              jobs.map(j => h(JobCard, { key: j.id, job: j, selected: selected?.id === j.id, onSelect: setSelected, savedIds, onToggleSave }))
+              jobs.map(j => h(JobCard, { key: j.id, job: j, selected: selected?.id === j.id, onSelect: setSelected, savedIds, onToggleSave, onDelete: id => setJobs(prev => prev.filter(x => x.id !== id)) }))
             ),
         ),
       );
