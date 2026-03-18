@@ -115,10 +115,19 @@ async def send_match_email(
     part.add_header("Content-Disposition", 'attachment; filename="Cover_Letter.pdf"')
     msg.attach(part)
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(SMTP_EMAIL, SMTP_PASSWORD)
-        server.sendmail(SMTP_FROM_EMAIL, recipient_email, msg.as_string())
+    # Port 465 = implicit SSL (SMTP_SSL). Port 587 / 2525 = STARTTLS.
+    timeout = 10  # seconds — never hang the pipeline
+    if int(SMTP_PORT) == 465:
+        import ssl as _ssl
+        ctx = _ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=timeout) as server:
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_FROM_EMAIL, recipient_email, msg.as_string())
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=timeout) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_FROM_EMAIL, recipient_email, msg.as_string())
 
     return {"status": "sent", "recipient": recipient_email}

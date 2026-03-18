@@ -69,33 +69,36 @@ async def tailor_documents(
     cfg = types.GenerateContentConfig(temperature=0.4)
     missing = ", ".join(missing_skills) if missing_skills else "none identified"
 
-    sugg_response = await gemini_call_with_retry(
-        _client.models.generate_content,
-        model=GEMINI_MODEL,
-        contents=SUGGESTIONS_PROMPT.format(
-            resume=resume[:3000],
-            job_description=job_description[:2500],
-            missing_skills=missing,
-        ),
-        config=cfg,
-    )
-    suggestions = (sugg_response.text or "").strip()
+    # Run both Gemini calls concurrently — cuts tailoring time roughly in half
+    async def _suggestions():
+        r = await gemini_call_with_retry(
+            _client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=SUGGESTIONS_PROMPT.format(
+                resume=resume[:3000],
+                job_description=job_description[:2500],
+                missing_skills=missing,
+            ),
+            config=cfg,
+        )
+        return (r.text or "").strip()
 
-    await asyncio.sleep(0.5)  # small breath between the two sequential Gemini calls
+    async def _cover_letter():
+        r = await gemini_call_with_retry(
+            _client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=COVER_LETTER_PROMPT.format(
+                name=applicant_name,
+                job_title=job_title,
+                company=company_name,
+                job_description=job_description[:2000],
+                resume_snippet=resume[:2000],
+            ),
+            config=cfg,
+        )
+        return (r.text or "").strip()
 
-    cl_response = await gemini_call_with_retry(
-        _client.models.generate_content,
-        model=GEMINI_MODEL,
-        contents=COVER_LETTER_PROMPT.format(
-            name=applicant_name,
-            job_title=job_title,
-            company=company_name,
-            job_description=job_description[:2000],
-            resume_snippet=resume[:2000],
-        ),
-        config=cfg,
-    )
-    cover_letter = (cl_response.text or "").strip()
+    suggestions, cover_letter = await asyncio.gather(_suggestions(), _cover_letter())
 
     return {
         "resume_suggestions": suggestions,
