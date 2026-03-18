@@ -9,6 +9,9 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from config import SMTP_EMAIL, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT
+import os
+
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_EMAIL)
 from services.pdf_service import generate_cover_letter_pdf
 
 
@@ -101,7 +104,7 @@ async def send_match_email(
     """
 
     msg = MIMEMultipart("mixed")
-    msg["From"] = SMTP_EMAIL
+    msg["From"] = f"ResumeFlow AI <{SMTP_FROM_EMAIL}>"
     msg["To"] = recipient_email
     msg["Subject"] = f"🎯 {match_score}% Match – {job_title} at {company_name} | ResumeFlow AI"
     msg.attach(MIMEText(html_body, "html"))
@@ -116,6 +119,6 @@ async def send_match_email(
         server.ehlo()
         server.starttls()
         server.login(SMTP_EMAIL, SMTP_PASSWORD)
-        server.sendmail(SMTP_EMAIL, recipient_email, msg.as_string())
+        server.sendmail(SMTP_FROM_EMAIL, recipient_email, msg.as_string())
 
     return {"status": "sent", "recipient": recipient_email}
