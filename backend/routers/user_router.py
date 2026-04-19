@@ -216,7 +216,7 @@ def delete_account(
     return {"message": "Account deleted"}
 
 
-@router.post("/resume", response_model=ResumeResponse)
+@router.post("/resume", response_model=ResumeSummary)
 async def upload_resume(
     file: UploadFile = File(...),
     name: Optional[str] = Form(None),
@@ -251,12 +251,20 @@ async def upload_resume(
     )
     db.add(new_resume)
 
-    # Set as active
+    # Set as active — mark all other resumes inactive via active_resume_id
     current_user.resume_text = text
     current_user.active_resume_id = new_resume.id
     db.commit()
+    db.refresh(new_resume)   # populate server-set fields (created_at, etc.)
+    db.refresh(current_user) # ensure active_resume_id is up to date
 
-    return ResumeResponse(resume_text=text)
+    return ResumeSummary(
+        id=new_resume.id,
+        name=new_resume.name,
+        created_at=str(new_resume.created_at) if new_resume.created_at else None,
+        preview=text[:120],
+        is_active=True,
+    )
 
 
 @router.get("/resume", response_model=ResumeResponse)

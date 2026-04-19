@@ -23,11 +23,19 @@ export default function VerifyPage() {
     }
 
     apiFetch<{ message: string }>(`/auth/verify-email?token=${encodeURIComponent(token)}`)
-      .then(data => {
+      .then(async data => {
         setState('success')
         setMessage(data.message)
-        // Update the persisted user store so the banner disappears immediately
-        if (user) setAuth({ ...user, is_verified: true })
+        // Re-fetch /auth/me so Zustand gets the server-confirmed is_verified: true.
+        // This is more reliable than patching state locally — if the DB commit failed
+        // for any reason, we'd see the real state here rather than wrongly hiding the banner.
+        try {
+          const me = await apiFetch<import('../types').User>('/auth/me')
+          setAuth(me)
+        } catch {
+          // Fallback: patch locally if /auth/me fails (e.g. not logged in yet)
+          if (user) setAuth({ ...user, is_verified: true })
+        }
       })
       .catch(err => {
         setState('error')

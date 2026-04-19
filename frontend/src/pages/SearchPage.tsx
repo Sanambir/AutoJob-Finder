@@ -54,8 +54,15 @@ export default function SearchPage() {
     const fd = new FormData()
     fd.append('file', file)
     try {
-      await apiUpload('/user/resume', fd)
+      const uploaded = await apiUpload<Resume>('/user/resume', fd)
       toast('Resume uploaded and activated!')
+      // Immediately inject the new resume into the cache so the UI updates
+      // without waiting for a server round-trip. Mark all others as inactive.
+      qc.setQueryData<Resume[]>(['resumes'], (prev = []) => [
+        uploaded,
+        ...prev.map(r => ({ ...r, is_active: false })),
+      ])
+      // Also invalidate so TanStack Query syncs the authoritative list from the server
       qc.invalidateQueries({ queryKey: ['resumes'] })
     } catch (e) {
       toast((e as Error).message, false)
