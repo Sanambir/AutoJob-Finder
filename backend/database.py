@@ -35,7 +35,9 @@ def get_db():
 
 def init_db():
     """Create all tables. Called at app startup."""
-    from models import User, Job, SavedJob, UserSchedule  # noqa: F401 — registers models
+    # Import every model so SQLAlchemy registers them with Base.metadata
+    # before create_all() runs. Missing imports = missing tables on fresh DB.
+    from models import User, Job, Resume, SavedJob, UserSchedule, ActivityLog  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
 

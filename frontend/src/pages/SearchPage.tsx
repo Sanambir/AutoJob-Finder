@@ -35,9 +35,10 @@ export default function SearchPage() {
   const [searching, setSearching]       = useState(false)
   const [uploading, setUploading]       = useState(false)
 
-  const { data: resumes = [], refetch: refetchResumes } = useQuery({
+  const { data: resumes = [] } = useQuery({
     queryKey: ['resumes'],
     queryFn: () => apiFetch<Resume[]>('/user/resumes'),
+    staleTime: 0,
   })
 
   const activeResume = resumes.find(r => r.is_active)
@@ -55,7 +56,7 @@ export default function SearchPage() {
     try {
       await apiUpload('/user/resume', fd)
       toast('Resume uploaded and activated!')
-      refetchResumes()
+      qc.invalidateQueries({ queryKey: ['resumes'] })
     } catch (e) {
       toast((e as Error).message, false)
     } finally {
@@ -148,7 +149,7 @@ export default function SearchPage() {
                       ? <span className="px-2 py-0.5 bg-white/10 text-white text-[9px] font-black uppercase rounded">Active</span>
                       : (
                         <button
-                          onClick={() => apiFetch('/user/resume/active', { method: 'PATCH', body: JSON.stringify({ resume_id: r.id }) }).then(() => refetchResumes())}
+                          onClick={() => apiFetch('/user/resume/active', { method: 'PATCH', body: JSON.stringify({ resume_id: r.id }) }).then(() => qc.invalidateQueries({ queryKey: ['resumes'] }))}
                           className="px-2 py-0.5 border border-white/10 text-white/40 text-[9px] font-black uppercase rounded hover:border-white/30 hover:text-white/60 transition-colors"
                         >
                           Stored

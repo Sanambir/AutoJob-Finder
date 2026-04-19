@@ -1,16 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import { useAuthStore } from '../store/auth'
 import { apiFetch } from '../api/client'
 import { useToast } from './Toast'
+import type { User } from '../types'
 
 export default function Layout() {
   const user    = useAuthStore(s => s.user)
   const setAuth = useAuthStore(s => s.setAuth)
+  const logout  = useAuthStore(s => s.logout)
   const toast   = useToast()
   const [sending, setSending] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+
+  // Refresh user state from server on every page load.
+  // Zustand persists to localStorage so is_verified / is_admin can go stale.
+  useEffect(() => {
+    apiFetch<User>('/auth/me')
+      .then(me => setAuth(me))
+      .catch(() => logout()) // session expired — clear state and redirect to login
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const showBanner = user && !user.is_verified && !dismissed
 
