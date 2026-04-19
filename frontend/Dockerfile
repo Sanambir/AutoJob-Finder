@@ -9,5 +9,5 @@ RUN npm run build        # outputs to /app/dist
 # ── Stage 2: serve with Nginx ────────────────────────────────────────────────
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
-# nginx.conf is injected by docker-compose volume mount
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
