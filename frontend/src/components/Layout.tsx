@@ -19,7 +19,16 @@ export default function Layout() {
   useEffect(() => {
     apiFetch<User>('/auth/me')
       .then(me => setAuth(me))
-      .catch(() => logout()) // session expired — clear state and redirect to login
+      .catch((err: Error) => {
+        // Only clear the session on genuine auth failures.
+        // Network errors (server restarting, brief downtime) must NOT log the
+        // user out — their cookie is still valid and they'll recover on next reload.
+        const msg = err?.message ?? ''
+        const isAuthError = msg === 'Not authenticated'
+          || msg === 'Invalid or expired token'
+          || msg === 'User not found'
+        if (isAuthError) logout()
+      })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const showBanner = user && !user.is_verified && !dismissed

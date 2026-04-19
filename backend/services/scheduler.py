@@ -45,12 +45,11 @@ def _run_user_search(user_id: str):
         db.commit()
 
         logger.info("Running scheduled search for user %s", user_id)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(_run_search_pipeline(request))
-        finally:
-            loop.close()
+        # asyncio.run() creates a fresh, isolated event loop for this background
+        # thread. _bypass_sem=True tells the pipeline to create local semaphores
+        # rather than sharing the global ones bound to FastAPI's main event loop,
+        # which would raise RuntimeError across event loops in Python 3.11+.
+        asyncio.run(_run_search_pipeline(request, _bypass_sem=True))
     except Exception as e:
         logger.error("Scheduled search failed for user %s: %s", user_id, e)
     finally:

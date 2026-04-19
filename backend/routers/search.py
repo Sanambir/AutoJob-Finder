@@ -132,26 +132,40 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
         update_job(job_id, status="scored", error=f"Email failed: {str(e)[:120]}")
 
 
-async def _scrape_platform(platform: str, request: SearchRequest, loop) -> list:
-    """Scrape one platform inside the global scrape semaphore."""
-    async with _get_scrape_sem():
-        return await loop.run_in_executor(None, lambda: scrape_jobs(
-            keywords=request.keywords or request.resume[:80],
-            location=request.location,
-            platforms=[platform],
-            results_per_site=request.results_per_site,
-            hours_old=request.hours_old,
-        ))
+async def _scrape_platform(platform: str, request: SearchRequest, loop, scrape_sem: asyncio.Semaphore) -> list:
+    """Scrape one platform inside the provided scrape semaphore."""
+    async with scrape_sem:
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: scrape_jobs(
+                    keywords=request.keywords or request.resume[:80],
+                    location=request.location,
+                    platforms=[platform],
+                    results_per_site=request.results_per_site,
+                    hours_old=request.hours_old,
+                )),
+                timeout=90.0,   # prevent a hung scrape from blocking the pipeline
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Scraping %s timed out after 90s — skipping platform", platform)
+            return []
 
 
-async def _run_search_pipeline(request: SearchRequest):
+async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False):
     loop = asyncio.get_running_loop()
 
-    # Scrape all platforms in parallel (each waits for a slot in _SCRAPE_SEM).
+    # Use global shared semaphores for web-request paths (shared across all users).
+    # Scheduler path passes _bypass_sem=True to get fresh semaphores — the
+    # scheduler runs in its own isolated event loop and cannot share Semaphore
+    # objects with the main FastAPI event loop without risking RuntimeError.
+    scrape_sem = asyncio.Semaphore(8) if _bypass_sem else _get_scrape_sem()
+    gemini_sem = asyncio.Semaphore(5) if _bypass_sem else _get_gemini_sem()
+
+    # Scrape all platforms in parallel (each waits for a slot in scrape_sem).
     # Previously they ran sequentially — now LinkedIn + Indeed run at the same time.
     try:
         platform_results = await asyncio.gather(
-            *[_scrape_platform(p, request, loop) for p in request.platforms],
+            *[_scrape_platform(p, request, loop, scrape_sem) for p in request.platforms],
             return_exceptions=True,
         )
         raw_jobs = []
@@ -204,9 +218,9 @@ async def _run_search_pipeline(request: SearchRequest):
 
     async def process_one(job_id, job):
         try:
-            # Global Gemini semaphore — shared across all users' pipelines.
-            # Prevents 100 simultaneous users from all calling Gemini at once.
-            async with _get_gemini_sem():
+            # Gemini semaphore — global for web requests, local for scheduler.
+            # Prevents too many simultaneous Gemini calls (rate limit protection).
+            async with gemini_sem:
                 if request.auto_pipeline:
                     await _pipeline_job(job_id, request.resume, job, request.recipient_email, request.applicant_name, request.user_id)
                 else:
