@@ -4,7 +4,7 @@ POST /api/search — Scrapes jobs, stores in DB per-user, runs pipeline in backg
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
-import asyncio, datetime, logging
+import asyncio, datetime, logging, concurrent.futures
 from sqlalchemy.orm import Session
 
 from config import DEFAULT_LOCATION, DEFAULT_RESULTS_EACH
@@ -21,25 +21,24 @@ from routers.activity import log_activity
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# ── Global concurrency guards ─────────────────────────────────────────────────
-# These are shared across ALL users / background tasks.
-#
-# _SCRAPE_SEM: max simultaneous jobspy scrape sessions.
-#   jobspy opens real HTTP connections — too many at once hammers the job boards
-#   and exhausts the thread-pool. 8 concurrent searches is plenty for beta scale.
-#
-# _GEMINI_SEM: max simultaneous Gemini API calls.
-#   Free-tier Gemini Flash allows ~15 req/min. Even paid tiers have QPM limits.
-#   Cap at 5 so 100 queued users don't all fire Gemini simultaneously and get 429s.
-#   Jobs still process — they just wait their turn.
-_SCRAPE_SEM: asyncio.Semaphore | None = None
-_GEMINI_SEM: asyncio.Semaphore | None = None
+# ── Scraping thread pool ──────────────────────────────────────────────────────
+# jobspy loads pandas + makes real HTTP requests. Each session can use 200-400 MB
+# of RAM. We cap at 2 concurrent threads so zombie threads from timed-out scrapes
+# (which cannot be interrupted) can never pile up and OOM the container.
+_SCRAPE_POOL: concurrent.futures.ThreadPoolExecutor | None = None
 
-def _get_scrape_sem() -> asyncio.Semaphore:
-    global _SCRAPE_SEM
-    if _SCRAPE_SEM is None:
-        _SCRAPE_SEM = asyncio.Semaphore(8)
-    return _SCRAPE_SEM
+def _get_scrape_pool() -> concurrent.futures.ThreadPoolExecutor:
+    global _SCRAPE_POOL
+    if _SCRAPE_POOL is None:
+        _SCRAPE_POOL = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="jobspy"
+        )
+    return _SCRAPE_POOL
+
+# ── Gemini concurrency guard ──────────────────────────────────────────────────
+# Free-tier Gemini Flash allows ~15 req/min. Cap at 5 simultaneous calls so
+# many queued users don't all fire at once and get 429s.
+_GEMINI_SEM: asyncio.Semaphore | None = None
 
 def _get_gemini_sem() -> asyncio.Semaphore:
     global _GEMINI_SEM
@@ -132,51 +131,48 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
         update_job(job_id, status="scored", error=f"Email failed: {str(e)[:120]}")
 
 
-async def _scrape_platform(platform: str, request: SearchRequest, loop, scrape_sem: asyncio.Semaphore) -> list:
-    """Scrape one platform inside the provided scrape semaphore."""
-    async with scrape_sem:
-        try:
-            return await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: scrape_jobs(
-                    keywords=request.keywords or request.resume[:80],
-                    location=request.location,
-                    platforms=[platform],
-                    results_per_site=request.results_per_site,
-                    hours_old=request.hours_old,
-                )),
-                timeout=90.0,   # prevent a hung scrape from blocking the pipeline
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Scraping %s timed out after 90s — skipping platform", platform)
-            return []
-
-
 async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False):
     loop = asyncio.get_running_loop()
 
-    # Use global shared semaphores for web-request paths (shared across all users).
-    # Scheduler path passes _bypass_sem=True to get fresh semaphores — the
-    # scheduler runs in its own isolated event loop and cannot share Semaphore
-    # objects with the main FastAPI event loop without risking RuntimeError.
-    scrape_sem = asyncio.Semaphore(8) if _bypass_sem else _get_scrape_sem()
+    # Gemini semaphore: global for web requests, fresh local copy for scheduler
+    # (scheduler runs in its own isolated event loop — sharing asyncio primitives
+    # across event loops raises RuntimeError in Python 3.11).
     gemini_sem = asyncio.Semaphore(5) if _bypass_sem else _get_gemini_sem()
 
-    # Scrape all platforms in parallel (each waits for a slot in scrape_sem).
-    # Previously they ran sequentially — now LinkedIn + Indeed run at the same time.
-    try:
-        platform_results = await asyncio.gather(
-            *[_scrape_platform(p, request, loop, scrape_sem) for p in request.platforms],
-            return_exceptions=True,
-        )
-        raw_jobs = []
-        for result in platform_results:
-            if isinstance(result, list):
-                raw_jobs.extend(result)
-            elif isinstance(result, Exception):
-                logger.warning("Platform scraping failed: %s", result)
-    except Exception as e:
-        logger.error("Job scraping failed: %s", e)
-        raw_jobs = []
+    # ── Scraping — sequential, one platform at a time ─────────────────────────
+    # IMPORTANT: Do NOT scrape platforms in parallel (asyncio.gather).
+    #
+    # jobspy loads pandas DataFrames + makes real HTTP requests.
+    # LinkedIn with full descriptions fetches each listing individually.
+    # Two simultaneous scrapes = 2× DataFrame memory = OOM kill in the container.
+    #
+    # Sequential scraping is slightly slower (platforms don't overlap) but keeps
+    # peak memory to one platform's worth at a time (~250 MB instead of 600 MB+).
+    # The bounded thread pool (max_workers=2) also caps zombie threads from
+    # scrapes that timed out but couldn't be interrupted.
+    pool = _get_scrape_pool()
+    raw_jobs: list = []
+    for platform in request.platforms:
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    pool,
+                    lambda p=platform: scrape_jobs(
+                        keywords=request.keywords or request.resume[:80],
+                        location=request.location,
+                        platforms=[p],
+                        results_per_site=request.results_per_site,
+                        hours_old=request.hours_old,
+                    ),
+                ),
+                timeout=120.0,  # 2 min per platform; LinkedIn with descriptions is slow
+            )
+            raw_jobs.extend(result)
+            logger.info("[%s] scraped %d jobs", platform, len(result))
+        except asyncio.TimeoutError:
+            logger.warning("[%s] scrape timed out after 120s — skipping", platform)
+        except Exception as e:
+            logger.warning("[%s] scrape failed: %s", platform, e)
 
     if not raw_jobs:
         logger.info("No jobs found for query.")

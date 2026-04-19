@@ -98,9 +98,13 @@ def scrape_jobs(
             if platform in _HOURS_OLD_SUPPORTED:
                 kwargs["hours_old"] = hours_old
 
-            # LinkedIn needs extra HTTP calls to fetch full JD text.
+            # LinkedIn requires extra per-listing HTTP calls to get full JD text.
+            # Each call fetches a full HTML page, so memory grows with result count.
+            # Cap LinkedIn results at 10 regardless of results_per_site to bound
+            # the number of description fetches and keep memory predictable.
             if platform == "linkedin":
                 kwargs["linkedin_fetch_description"] = True
+                kwargs["results_wanted"] = min(results_per_site, 10)
 
             df: pd.DataFrame = _scrape(**kwargs)
 
