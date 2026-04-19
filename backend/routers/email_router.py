@@ -1,18 +1,22 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-import smtplib
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import Session
+import smtplib, ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
 from services.pdf_service import generate_cover_letter_pdf
+from services.auth_service import get_current_user
+from models import User
+from database import get_db
 from config import SMTP_HOST, SMTP_PORT, SMTP_EMAIL, SMTP_PASSWORD
 
 router = APIRouter()
 
 
 class EmailRequest(BaseModel):
-    recipient_email: str
+    recipient_email: EmailStr
     applicant_name: str = "Applicant"
     job_title: str = "Position"
     company_name: str = "Company"
@@ -23,7 +27,11 @@ class EmailRequest(BaseModel):
 
 
 @router.post("/send-email")
-async def send_email(request: EmailRequest):
+async def send_email(
+    request: EmailRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         raise HTTPException(status_code=500, detail="SMTP credentials not configured")
 
@@ -63,7 +71,7 @@ async def send_email(request: EmailRequest):
 
             <!-- Header -->
             <div style="background:linear-gradient(135deg,#0f3460,#e94560); padding:28px 32px;">
-              <h1 style="margin:0; font-size:22px; color:#fff;">⚡ ResumeFlow AI</h1>
+              <h1 style="margin:0; font-size:22px; color:#fff;">⚡ WorkfinderX</h1>
               <p style="margin:6px 0 0; color:rgba(255,255,255,0.8); font-size:13px;">
                 New job match found — your personalised documents are ready
               </p>
@@ -109,7 +117,7 @@ async def send_email(request: EmailRequest):
             </div>
 
             <div style="padding:14px 32px; border-top:1px solid #30363d; text-align:center;">
-              <p style="color:#484f58; font-size:11px; margin:0;">Sent automatically by ResumeFlow AI</p>
+              <p style="color:#484f58; font-size:11px; margin:0;">Sent automatically by WorkfinderX</p>
             </div>
           </div>
         </body></html>
@@ -119,7 +127,7 @@ async def send_email(request: EmailRequest):
         msg["From"]    = SMTP_EMAIL
         msg["To"]      = request.recipient_email
         msg["Subject"] = (
-            f"🎯 {request.match_score}% Match – {request.job_title} at {request.company_name} | ResumeFlow AI"
+            f"🎯 {request.match_score}% Match – {request.job_title} at {request.company_name} | WorkfinderX"
         )
         msg.attach(MIMEText(html_body, "html"))
 
@@ -130,11 +138,18 @@ async def send_email(request: EmailRequest):
         part.add_header("Content-Disposition", 'attachment; filename="Cover_Letter.pdf"')
         msg.attach(part)
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, request.recipient_email, msg.as_string())
+        timeout = 10
+        if int(SMTP_PORT) == 465:
+            ctx = ssl.create_default_context()
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=timeout) as server:
+                server.login(SMTP_EMAIL, SMTP_PASSWORD)
+                server.sendmail(SMTP_EMAIL, request.recipient_email, msg.as_string())
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=timeout) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(SMTP_EMAIL, SMTP_PASSWORD)
+                server.sendmail(SMTP_EMAIL, request.recipient_email, msg.as_string())
 
         return {"status": "sent", "recipient": request.recipient_email}
 

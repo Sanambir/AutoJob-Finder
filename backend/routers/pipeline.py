@@ -1,10 +1,13 @@
 """
 Manual pipeline: POST /api/pipeline — auth required, stores job in DB under current user.
 """
+import logging
 from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from database import get_db, SessionLocal
 from services.auth_service import get_current_user
@@ -13,6 +16,7 @@ from services.tailor_service import tailor_documents
 from services.email_service import send_match_email
 from models import User
 from routers.jobs import create_job_record, update_job
+from routers.activity import log_activity
 
 router = APIRouter()
 
@@ -46,6 +50,7 @@ async def _run_pipeline(job_id: str, request: PipelineRequest, user_id: str):
         sd = await score_resume(request.resume, request.job_description)
     except Exception as e:
         update_job(job_id, status="error", error=f"Scoring: {e}")
+        log_activity(user_id, "error", f"Scoring failed for {request.job_title}: {e}", job_id)
         return
 
     score = sd["match_score"]
@@ -53,6 +58,7 @@ async def _run_pipeline(job_id: str, request: PipelineRequest, user_id: str):
 
     if score < threshold:
         update_job(job_id, status="below_threshold")
+        log_activity(user_id, "scored", f"{request.job_title} scored {score}% (below {threshold}% threshold)", job_id)
         return
 
     update_job(job_id, status="tailoring")
@@ -64,6 +70,7 @@ async def _run_pipeline(job_id: str, request: PipelineRequest, user_id: str):
         )
     except Exception as e:
         update_job(job_id, status="error", error=f"Tailoring: {e}")
+        log_activity(user_id, "error", f"Tailoring failed for {request.job_title}: {e}", job_id)
         return
 
     update_job(job_id, resume_suggestions=td["resume_suggestions"], cover_letter=td["cover_letter"])
@@ -77,8 +84,15 @@ async def _run_pipeline(job_id: str, request: PipelineRequest, user_id: str):
             cover_letter=td["cover_letter"], match_score=score,
         )
         update_job(job_id, status="scored" if result.get("status") == "skipped" else "emailed")
+        if result.get("status") != "skipped":
+            log_activity(user_id, "emailed", f"Match report sent for {request.job_title} ({score}%)", job_id)
+        else:
+            log_activity(user_id, "scored", f"{request.job_title} scored {score}% — email skipped", job_id)
     except Exception as e:
-        update_job(job_id, status="error", error=f"Email: {e}")
+        # Email failure is non-fatal — job is still scored and tailored
+        logger.warning("Email failed for job %s (still marking scored): %s", job_id, e)
+        update_job(job_id, status="scored", error=f"Email failed: {str(e)[:120]}")
+        log_activity(user_id, "scored", f"{request.job_title} scored {score}% — email failed", job_id)
 
 
 @router.post("/pipeline", response_model=PipelineResponse)

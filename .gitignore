@@ -7,10 +7,18 @@ venv/
 venv311/
 *.log
 
-# Environment & secrets
+# Environment & secrets — NEVER commit these
 .env
 backend/.env
 backend/.config_state.json
+
+# Databases — persisted via Docker volume, not git
+*.db
+*.sqlite
+*.sqlite3
+
+# Pip artifacts
+backend/=*
 
 # Node
 node_modules/
@@ -27,3 +35,17 @@ dist/
 # Local run scripts
 start.sh
 start.bat
+run.bat
+
+# One-off scripts
+compile.py
+fix_style.py
+final_repair.py
+unify_sidebar.py
+
+# Backups
+*.bak
+
+# AI assistant memory
+CLAUDE.md
+.agent/

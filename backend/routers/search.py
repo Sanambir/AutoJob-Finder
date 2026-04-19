@@ -16,9 +16,36 @@ from services.auth_service import get_current_user
 from database import get_db, SessionLocal
 from models import User
 from routers.jobs import update_job, create_job_record
+from routers.activity import log_activity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# ── Global concurrency guards ─────────────────────────────────────────────────
+# These are shared across ALL users / background tasks.
+#
+# _SCRAPE_SEM: max simultaneous jobspy scrape sessions.
+#   jobspy opens real HTTP connections — too many at once hammers the job boards
+#   and exhausts the thread-pool. 8 concurrent searches is plenty for beta scale.
+#
+# _GEMINI_SEM: max simultaneous Gemini API calls.
+#   Free-tier Gemini Flash allows ~15 req/min. Even paid tiers have QPM limits.
+#   Cap at 5 so 100 queued users don't all fire Gemini simultaneously and get 429s.
+#   Jobs still process — they just wait their turn.
+_SCRAPE_SEM: asyncio.Semaphore | None = None
+_GEMINI_SEM: asyncio.Semaphore | None = None
+
+def _get_scrape_sem() -> asyncio.Semaphore:
+    global _SCRAPE_SEM
+    if _SCRAPE_SEM is None:
+        _SCRAPE_SEM = asyncio.Semaphore(8)
+    return _SCRAPE_SEM
+
+def _get_gemini_sem() -> asyncio.Semaphore:
+    global _GEMINI_SEM
+    if _GEMINI_SEM is None:
+        _GEMINI_SEM = asyncio.Semaphore(5)
+    return _GEMINI_SEM
 
 
 class SearchRequest(BaseModel):
@@ -27,7 +54,7 @@ class SearchRequest(BaseModel):
     applicant_name: str = "Applicant"
     keywords: str = ""
     location: str = DEFAULT_LOCATION
-    platforms: List[str] = ["indeed", "linkedin", "glassdoor", "zip_recruiter"]
+    platforms: List[str] = ["linkedin", "indeed"]
     results_per_site: int = DEFAULT_RESULTS_EACH
     hours_old: int = 72
     auto_pipeline: bool = True
@@ -42,7 +69,7 @@ class SearchResponse(BaseModel):
 
 
 def _now() -> str:
-    return datetime.datetime.utcnow().isoformat()
+    return datetime.datetime.utcnow().isoformat() + "Z"
 
 
 async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: str, applicant_name: str, user_id: str):
@@ -58,9 +85,12 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
 
     update_job(job_id, status="scoring")
     try:
-        # Truncate inputs: keep scoring fast and token-efficient
-        resume_trim = resume[:3000]
-        jd_trim = job["description"][:2000]
+        # Gemini Flash supports 1M token context — send the full resume.
+        # Previous 3000-char limit was cutting most resumes mid-way through
+        # the contact/education section, causing Gemini to see no work experience.
+        # Cap at 15000 chars (~3000 words) to cover even 4-page CVs comfortably.
+        resume_trim = resume[:15000]
+        jd_trim = job["description"][:8000]
         sd = await score_resume(resume_trim, jd_trim)
     except Exception as e:
         update_job(job_id, status="error", error=f"Scoring: {e}")
@@ -102,14 +132,34 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
         update_job(job_id, status="scored", error=f"Email failed: {str(e)[:120]}")
 
 
-async def _run_search_pipeline(request: SearchRequest):
-    loop = asyncio.get_event_loop()
-    try:
-        raw_jobs = await loop.run_in_executor(None, lambda: scrape_jobs(
+async def _scrape_platform(platform: str, request: SearchRequest, loop) -> list:
+    """Scrape one platform inside the global scrape semaphore."""
+    async with _get_scrape_sem():
+        return await loop.run_in_executor(None, lambda: scrape_jobs(
             keywords=request.keywords or request.resume[:80],
-            location=request.location, platforms=request.platforms,
-            results_per_site=request.results_per_site, hours_old=request.hours_old,
+            location=request.location,
+            platforms=[platform],
+            results_per_site=request.results_per_site,
+            hours_old=request.hours_old,
         ))
+
+
+async def _run_search_pipeline(request: SearchRequest):
+    loop = asyncio.get_running_loop()
+
+    # Scrape all platforms in parallel (each waits for a slot in _SCRAPE_SEM).
+    # Previously they ran sequentially — now LinkedIn + Indeed run at the same time.
+    try:
+        platform_results = await asyncio.gather(
+            *[_scrape_platform(p, request, loop) for p in request.platforms],
+            return_exceptions=True,
+        )
+        raw_jobs = []
+        for result in platform_results:
+            if isinstance(result, list):
+                raw_jobs.extend(result)
+            elif isinstance(result, Exception):
+                logger.warning("Platform scraping failed: %s", result)
     except Exception as e:
         logger.error("Job scraping failed: %s", e)
         raw_jobs = []
@@ -119,6 +169,7 @@ async def _run_search_pipeline(request: SearchRequest):
         return
 
     logger.info("Scraped %d jobs, starting pipeline…", len(raw_jobs))
+    log_activity(request.user_id, "search", f"Found {len(raw_jobs)} jobs for '{request.keywords or 'resume match'}'")
 
     # Deduplicate: skip jobs with same title+company already in DB for this user
     from models import Job as JobModel
@@ -146,34 +197,51 @@ async def _run_search_pipeline(request: SearchRequest):
             "recipient_email": request.recipient_email, "applicant_name": request.applicant_name,
             "status": "queued", "platform": job.get("platform", ""),
             "location": job.get("location", ""), "date_posted": job.get("date_posted", ""),
+            "salary_min": job.get("salary_min", ""), "salary_max": job.get("salary_max", ""),
+            "job_type": job.get("job_type", ""),
         })
         job_ids.append((job_id, job))
 
-    sem = asyncio.Semaphore(3)   # 3 concurrent Gemini calls — fast but not spammy
-
     async def process_one(job_id, job):
-        async with sem:
-            if request.auto_pipeline:
-                await _pipeline_job(job_id, request.resume, job, request.recipient_email, request.applicant_name, request.user_id)
-            else:
-                update_job(job_id, status="scoring")
-                try:
-                    resume_trim = request.resume[:3000]
-                    jd_trim = job["description"][:2000]
-                    sd = await score_resume(resume_trim, jd_trim)
-                    score = sd["match_score"]
-                    db = SessionLocal()
-                    user = db.query(User).filter(User.id == request.user_id).first()
-                    threshold = user.match_threshold if user else 75
-                    db.close()
-                    update_job(job_id, match_score=score, reasoning=sd.get("reasoning", ""),
-                               missing_skills=sd.get("missing_skills", []),
-                               status="below_threshold" if score < threshold else "scored")
-                except Exception as e:
-                    update_job(job_id, status="error", error=str(e))
+        try:
+            # Global Gemini semaphore — shared across all users' pipelines.
+            # Prevents 100 simultaneous users from all calling Gemini at once.
+            async with _get_gemini_sem():
+                if request.auto_pipeline:
+                    await _pipeline_job(job_id, request.resume, job, request.recipient_email, request.applicant_name, request.user_id)
+                else:
+                    update_job(job_id, status="scoring")
+                    try:
+                        resume_trim = request.resume[:15000]
+                        jd_trim = job["description"][:8000]
+                        sd = await score_resume(resume_trim, jd_trim)
+                        score = sd["match_score"]
+                        db = SessionLocal()
+                        user = db.query(User).filter(User.id == request.user_id).first()
+                        threshold = user.match_threshold if user else 75
+                        db.close()
+                        update_job(job_id, match_score=score, reasoning=sd.get("reasoning", ""),
+                                   missing_skills=sd.get("missing_skills", []),
+                                   status="below_threshold" if score < threshold else "scored")
+                    except Exception as e:
+                        update_job(job_id, status="error", error=str(e))
+        except Exception as e:
+            # Catch anything that escaped inner try/excepts so it cannot
+            # cancel the remaining jobs in asyncio.gather
+            logger.error("Unexpected pipeline error for job %s: %s", job_id, e)
+            update_job(job_id, status="error", error=f"Pipeline error: {str(e)[:200]}")
 
-    await asyncio.gather(*[process_one(jid, j) for jid, j in job_ids])
+    # return_exceptions=True ensures one failure never cancels the other jobs
+    results = await asyncio.gather(
+        *[process_one(jid, j) for jid, j in job_ids],
+        return_exceptions=True,
+    )
+    errors = [r for r in results if isinstance(r, Exception)]
+    if errors:
+        logger.error("%d job(s) hit unhandled exceptions: %s", len(errors), errors)
+
     logger.info("Pipeline complete for user %s — %d jobs processed", request.user_id, len(job_ids))
+    log_activity(request.user_id, "pipeline", f"Pipeline complete — {len(job_ids)} jobs processed")
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -183,9 +251,12 @@ async def search_jobs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not request.keywords and not request.resume:
-        raise HTTPException(status_code=400, detail="Provide keywords or resume text")
+    if not request.keywords and not current_user.resume_text:
+        raise HTTPException(status_code=400, detail="Provide keywords or upload a resume first")
 
+    # Always load the full resume text from the DB — never trust what the
+    # frontend sends (it only has the 120-char preview from the resumes list).
+    request.resume = current_user.resume_text or ""
     request.user_id = current_user.id
     background_tasks.add_task(_run_search_pipeline, request)
 

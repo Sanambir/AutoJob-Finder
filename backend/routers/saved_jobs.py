@@ -49,6 +49,9 @@ def _job_to_record(job: Job) -> dict:
         "applicant_name": job.applicant_name, "recipient_email": job.recipient_email,
         "status": job.status, "match_score": job.match_score, "reasoning": job.reasoning,
         "missing_skills": job.missing_skills or [], "resume_suggestions": job.resume_suggestions,
-        "cover_letter": job.cover_letter, "created_at": job.created_at, "updated_at": job.updated_at,
+        "cover_letter": job.cover_letter, "created_at": job.created_at or "", "updated_at": job.updated_at or "",
         "error": job.error, "platform": job.platform, "location": job.location, "date_posted": job.date_posted,
+        "kanban_stage": job.kanban_stage or "discovered",
+        "notes": job.notes, "salary_min": job.salary_min,
+        "salary_max": job.salary_max, "job_type": job.job_type,
     }

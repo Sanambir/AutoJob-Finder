@@ -5,31 +5,48 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: resumeflow-backend
-    ports:
-      - "8000:8000"
-    env_file:
-      - ./backend/.env
+    container_name: workfinderx-backend
+    restart: unless-stopped
+    environment:
+      # Set all of these in Coolify's environment variable UI.
+      # For local dev, create backend/.env and use env_file instead.
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
+      - SECRET_KEY=${SECRET_KEY}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_EMAIL=${SMTP_EMAIL}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - MATCH_THRESHOLD=${MATCH_THRESHOLD:-75}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - DB_PATH=/app/data/workfinderx.db
     volumes:
-      - ./backend:/app
-    working_dir: /app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - db_data:/app/data           # named volume — survives redeployments
     networks:
-      - resumeflow
+      - workfinderx
 
   frontend:
-    image: nginx:alpine
-    container_name: resumeflow-frontend
-    ports:
-      - "5173:80"
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: workfinderx-frontend
+    restart: unless-stopped
+    expose:
+      - "80"                        # internal only — Coolify's Traefik routes to this
     volumes:
-      - ./frontend:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
     networks:
-      - resumeflow
+      - workfinderx
+
+volumes:
+  db_data:                          # named volume for SQLite persistence
 
 networks:
-  resumeflow:
+  workfinderx:
     driver: bridge

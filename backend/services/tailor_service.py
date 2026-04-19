@@ -98,7 +98,10 @@ async def tailor_documents(
         )
         return (r.text or "").strip()
 
-    suggestions, cover_letter = await asyncio.gather(_suggestions(), _cover_letter())
+    # Run sequentially — asyncio.gather would fire 2 concurrent Gemini calls per job,
+    # doubling API pressure and causing 429s despite the per-job semaphore in search.py
+    suggestions = await _suggestions()
+    cover_letter = await _cover_letter()
 
     return {
         "resume_suggestions": suggestions,

@@ -1,5 +1,3 @@
-import os
-
 import pandas as pd
 from typing import List, Optional
 import logging
@@ -9,71 +7,115 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_PLATFORMS = {"linkedin", "indeed", "glassdoor", "zip_recruiter"}
 
+# Platforms where hours_old is reliably supported.
+# Glassdoor returns "Error encountered in API response" when hours_old is passed.
+# ZipRecruiter ignores it and the parameter can cause empty results.
+_HOURS_OLD_SUPPORTED = {"linkedin", "indeed"}
+
+
+def _clean(val) -> str:
+    s = str(val or "").strip()
+    return "" if s == "nan" else s
+
+
+def _parse_rows(df: pd.DataFrame, platform: str) -> List[dict]:
+    """Convert a jobspy DataFrame into our job-dict list."""
+    jobs = []
+    for _, row in df.iterrows():
+        desc = str(row.get("description", "") or "")
+        if not desc or desc == "nan":
+            parts = []
+            if row.get("job_type"):   parts.append(f"Type: {row['job_type']}")
+            if row.get("min_amount"): parts.append(f"Salary: ${row.get('min_amount','')}–${row.get('max_amount','')}")
+            desc = " | ".join(parts) if parts else "No description available"
+
+        jobs.append({
+            "title":       _clean(row.get("title", "")),
+            "company":     _clean(row.get("company", "")),
+            "location":    _clean(row.get("location", "")),
+            "url":         _clean(row.get("job_url", "")),
+            "description": desc[:6000],
+            "platform":    _clean(row.get("site", "")) or platform,
+            "date_posted": _clean(row.get("date_posted", "")),
+            "salary_min":  _clean(row.get("min_amount", "")),
+            "salary_max":  _clean(row.get("max_amount", "")),
+            "job_type":    _clean(row.get("job_type", "")),
+        })
+    return jobs
+
 
 def scrape_jobs(
     keywords: str,
     location: str = "Remote",
     platforms: Optional[List[str]] = None,
     results_per_site: int = 10,
-    hours_old: int = 72,          # Only jobs posted in last N hours
+    hours_old: int = 72,
 ) -> List[dict]:
     """
-    Scrape jobs from multiple platforms. Returns a list of job dicts.
-    Each dict: {title, company, location, url, description, platform, date_posted}
+    Scrape jobs from multiple platforms independently.
+    One platform failing never prevents results from others.
     """
     try:
         from jobspy import scrape_jobs as _scrape
     except ImportError:
-        logger.error("python-jobspy not installed. Run: pip3 install python-jobspy")
+        logger.error("python-jobspy not installed. Run: pip install python-jobspy")
         return []
 
-    # Validate and normalize platform list
     if not platforms:
-        platforms = ["indeed", "linkedin", "glassdoor", "zip_recruiter"]
+        platforms = ["linkedin", "indeed"]
     platforms = [p.lower() for p in platforms if p.lower() in SUPPORTED_PLATFORMS]
     if not platforms:
         platforms = ["indeed"]
 
-    try:
-        df: pd.DataFrame = _scrape(
-            site_name=platforms,
-            search_term=keywords,
-            location=location,
-            results_wanted=results_per_site,
-            hours_old=hours_old,
-            country_indeed="USA",
-            linkedin_fetch_description=True,   # Needed to get full JD from LinkedIn
-        )
-    except Exception as e:
-        logger.error(f"jobspy scrape failed: {e}")
-        return []
+    # Detect remote-only searches.
+    is_remote = location.strip().lower() in ("remote", "")
 
-    if df is None or df.empty:
-        return []
+    all_jobs: List[dict] = []
 
-    jobs = []
-    for _, row in df.iterrows():
-        # Build a clean description — jobspy returns NaN for missing values
-        desc = str(row.get("description", "") or "")
-        if not desc or desc == "nan":
-            # Compose a minimal description from structured fields
-            parts = []
-            if row.get("job_type"):   parts.append(f"Type: {row['job_type']}")
-            if row.get("min_amount"): parts.append(f"Salary: ${row.get('min_amount','')}–${row.get('max_amount','')}")
-            desc = " | ".join(parts) if parts else "No description available"
+    for platform in platforms:
+        try:
+            kwargs: dict = dict(
+                site_name=[platform],
+                search_term=keywords,
+                results_wanted=results_per_site,
+                country_indeed="usa",
+                verbose=0,
+            )
 
-        url = str(row.get("job_url", "") or "")
-        if url == "nan":
-            url = ""
+            if is_remote:
+                # Use jobspy's is_remote flag for remote-only searches — more
+                # reliable than passing "Remote" as a location string.
+                kwargs["is_remote"] = True
+            else:
+                # For location-based searches: pass the location string and
+                # do NOT set is_remote at all. Indeed in jobspy ignores the
+                # location parameter when is_remote=False is explicitly set,
+                # so omitting it lets the location do the work on all platforms.
+                kwargs["location"] = location
 
-        jobs.append({
-            "title":       str(row.get("title", "")     or "").strip(),
-            "company":     str(row.get("company", "")   or "").strip(),
-            "location":    str(row.get("location", "")  or "").strip(),
-            "url":         url,
-            "description": desc[:6000],   # cap at 6k chars to keep Gemini prompt manageable
-            "platform":    str(row.get("site", "")      or "").strip(),
-            "date_posted": str(row.get("date_posted", "") or "").strip(),
-        })
+            # hours_old causes Glassdoor API errors and ZipRecruiter empty
+            # results — only apply it where it's reliably supported.
+            if platform in _HOURS_OLD_SUPPORTED:
+                kwargs["hours_old"] = hours_old
 
-    return jobs
+            # LinkedIn needs extra HTTP calls to fetch full JD text.
+            if platform == "linkedin":
+                kwargs["linkedin_fetch_description"] = True
+
+            df: pd.DataFrame = _scrape(**kwargs)
+
+            if df is None or df.empty:
+                logger.info("[%s] Returned 0 results", platform)
+                continue
+
+            platform_jobs = _parse_rows(df, platform)
+            logger.info("[%s] Got %d jobs", platform, len(platform_jobs))
+            all_jobs.extend(platform_jobs)
+
+        except Exception as e:
+            # Log but keep going so other platforms still contribute results.
+            logger.warning("[%s] Scraping failed: %s", platform, e)
+            continue
+
+    logger.info("Total across all platforms: %d jobs", len(all_jobs))
+    return all_jobs

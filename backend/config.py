@@ -26,7 +26,9 @@ DEFAULT_LOCATION     = os.getenv("DEFAULT_LOCATION", "Remote")
 DEFAULT_RESULTS_EACH = int(os.getenv("DEFAULT_RESULTS_EACH", "10"))  # per platform
 
 # App settings
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_URL  = os.getenv("FRONTEND_URL", "http://localhost:5173")
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"  # set True behind HTTPS
+ADMIN_EMAIL   = os.getenv("ADMIN_EMAIL", "")   # bootstrapped as admin on startup
 
 # ── Persistent config (survives restarts) ─────────────────────────────────────
 _CONFIG_FILE = os.path.join(os.path.dirname(__file__), ".config_state.json")

@@ -28,7 +28,7 @@ def _run_user_search(user_id: str):
             return
 
         request = SearchRequest(
-            resume="",  # scheduler runs without a fresh resume — uses last stored keywords
+            resume=user.resume_text or "",
             recipient_email=user.email,
             applicant_name=user.name,
             keywords=sched.keywords,

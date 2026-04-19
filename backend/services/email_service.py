@@ -35,7 +35,6 @@ async def send_match_email(
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         # Gracefully skip email instead of crashing the whole pipeline
         return {"status": "skipped", "reason": "SMTP credentials not configured"}
-
     cover_bytes = generate_cover_letter_pdf(applicant_name, cover_letter)
 
     raw_lines = resume_suggestions.strip().splitlines()
@@ -44,69 +43,104 @@ async def send_match_email(
         line = line.strip()
         if not line:
             continue
-        clean = re.sub(r"^\d+[\.)] *", "", line)
-        suggestion_items += f"<li style='margin-bottom:10px;'>{clean}</li>\n"
+        clean = re.sub(r"^\d+[\\.)] *", "", line)
+        suggestion_items += f"<li style='margin-bottom:10px;color:#c9c9c9;'>{clean}</li>\n"
 
-    score_color = "#22c55e" if match_score >= 75 else "#f59e0b" if match_score >= 50 else "#ef4444"
+    # Accent colour matches website badge system
+    if match_score >= 75:
+        score_color = "#34d399"   # green — emailed badge
+    elif match_score >= 50:
+        score_color = "#fbbf24"   # yellow — tailoring badge
+    else:
+        score_color = "#f87171"   # red — error badge
 
     job_link_html = ""
     if job_url:
         job_link_html = f"""
         <div style="text-align:center; margin:28px 0;">
           <a href="{job_url}"
-             style="display:inline-block; padding:14px 32px; background:linear-gradient(135deg,#0f3460,#e94560);
-                    color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px;
-                    letter-spacing:.3px;">
-            🔗 View Job Posting ↗
+             style="display:inline-block; padding:12px 28px; background:#ffffff;
+                    color:#111111; text-decoration:none; border-radius:10px;
+                    font-weight:700; font-size:13px; letter-spacing:.5px;">
+            View Job Posting →
           </a>
         </div>"""
 
-    html_body = f"""
-    <html><body style="font-family:'Helvetica Neue',Arial,sans-serif; background:#0d1117; color:#e6edf3; padding:32px;">
-      <div style="max-width:640px; margin:0 auto; background:#161b22; border-radius:14px; overflow:hidden; border:1px solid #30363d;">
-        <div style="background:linear-gradient(135deg,#0f3460,#e94560); padding:28px 32px;">
-          <h1 style="margin:0; font-size:22px; color:#fff;">⚡ ResumeFlow AI</h1>
-          <p style="margin:6px 0 0; color:rgba(255,255,255,0.8); font-size:13px;">
-            New job match found — your personalised documents are ready
-          </p>
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:40px auto;background:#111111;border-radius:16px;
+              overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+
+    <!-- Header -->
+    <div style="padding:28px 32px;border-bottom:1px solid rgba(255,255,255,0.06);
+                display:flex;align-items:center;gap:12px;">
+      <div style="width:36px;height:36px;background:rgba(255,255,255,0.05);border-radius:10px;
+                  display:flex;align-items:center;justify-content:center;
+                  border:1px solid rgba(255,255,255,0.08);font-size:18px;line-height:36px;text-align:center;">
+        &#9889;
+      </div>
+      <div>
+        <p style="margin:0;font-size:15px;font-weight:700;color:#ffffff;letter-spacing:-.3px;">WorkfinderX</p>
+        <p style="margin:2px 0 0;font-size:11px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:.8px;">Job Match Report</p>
+      </div>
+    </div>
+
+    <!-- Score + Job -->
+    <div style="padding:28px 32px;">
+      <div style="background:#1a1a1a;border-radius:12px;padding:20px 24px;
+                  margin-bottom:24px;border-left:3px solid {score_color};
+                  display:flex;align-items:center;gap:20px;">
+        <div style="text-align:center;min-width:64px;">
+          <p style="margin:0;font-size:40px;font-weight:900;color:{score_color};line-height:1;">{match_score}</p>
+          <p style="margin:2px 0 0;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.8px;">% Match</p>
         </div>
-        <div style="padding:28px 32px;">
-          <div style="display:flex; align-items:center; gap:16px; background:#21262d;
-                      border-radius:10px; padding:14px 20px; margin-bottom:24px; border-left:4px solid {score_color};">
-            <div>
-              <p style="margin:0; font-size:12px; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">Match Score</p>
-              <p style="margin:4px 0 0; font-size:36px; font-weight:800; color:{score_color}; line-height:1;">{match_score}%</p>
-            </div>
-            <div style="border-left:1px solid #30363d; padding-left:16px;">
-              <p style="margin:0; font-weight:700; color:#e6edf3; font-size:14px;">{job_title}</p>
-              <p style="margin:3px 0 0; color:#8b949e; font-size:13px;">{company_name}</p>
-            </div>
-          </div>
-          {job_link_html}
-          <div style="margin-bottom:24px;">
-            <h3 style="margin:0 0 12px; font-size:14px; color:#e94560; text-transform:uppercase;
-                       letter-spacing:.8px; border-bottom:1px solid #30363d; padding-bottom:8px;">
-              ✏️ Resume Edit Suggestions
-            </h3>
-            <ol style="margin:0; padding-left:20px; font-size:13px; color:#e6edf3; line-height:1.7;">
-              {suggestion_items}
-            </ol>
-          </div>
-          <div style="background:#21262d; border-radius:8px; padding:14px 18px; font-size:13px; color:#8b949e;">
-            📝 <strong style="color:#e6edf3;">Cover_Letter.pdf</strong> is attached — personalised for this role by Gemini 1.5 Flash.
-          </div>
-        </div>
-        <div style="padding:14px 32px; border-top:1px solid #30363d; text-align:center;">
-          <p style="color:#484f58; font-size:11px; margin:0;">Sent automatically by ResumeFlow AI</p>
+        <div style="border-left:1px solid rgba(255,255,255,0.08);padding-left:20px;">
+          <p style="margin:0;font-size:16px;font-weight:700;color:#ffffff;">{job_title}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.45);">{company_name}</p>
         </div>
       </div>
-    </body></html>
-    """
+
+      {job_link_html}
+
+      <!-- Resume Tips -->
+      <div style="margin-bottom:24px;">
+        <p style="margin:0 0 14px;font-size:11px;font-weight:600;color:rgba(255,255,255,0.35);
+                  text-transform:uppercase;letter-spacing:.8px;">Resume Edit Suggestions</p>
+        <ol style="margin:0;padding-left:18px;font-size:13px;color:#c9c9c9;line-height:1.75;">
+          {suggestion_items}
+        </ol>
+      </div>
+
+      <!-- Attachment note -->
+      <div style="background:#1a1a1a;border-radius:10px;padding:14px 18px;
+                  border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px;">
+        <span style="font-size:16px;">📄</span>
+        <div>
+          <p style="margin:0;font-size:13px;font-weight:600;color:#ffffff;">Cover_Letter.pdf attached</p>
+          <p style="margin:2px 0 0;font-size:11px;color:rgba(255,255,255,0.3);">
+            AI-tailored for {job_title} at {company_name}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:16px 32px;border-top:1px solid rgba(255,255,255,0.05);text-align:center;">
+      <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.2);">
+        Sent automatically by WorkfinderX · ENCRYPTED_PIPELINE_V1.0
+      </p>
+    </div>
+  </div>
+</body>
+</html>"""
+
 
     msg = MIMEMultipart("mixed")
-    msg["From"] = f"ResumeFlow AI <{SMTP_FROM_EMAIL}>"
+    msg["From"] = f"WorkfinderX <{SMTP_FROM_EMAIL}>"
     msg["To"] = recipient_email
-    msg["Subject"] = f"🎯 {match_score}% Match – {job_title} at {company_name} | ResumeFlow AI"
+    msg["Subject"] = f"🎯 {match_score}% Match – {job_title} at {company_name} | WorkfinderX"
     msg.attach(MIMEText(html_body, "html"))
 
     part = MIMEBase("application", "pdf")
