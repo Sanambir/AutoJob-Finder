@@ -175,6 +175,20 @@ export default function Sidebar() {
           )}
         </button>
 
+        {/* Admin (admins only) */}
+        {user?.is_admin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all min-w-0 flex-1
+               ${isActive ? 'text-white' : 'text-zinc-600'}`
+            }
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>admin_panel_settings</span>
+            <span className="text-[9px] font-semibold">Admin</span>
+          </NavLink>
+        )}
+
         {/* Profile */}
         <NavLink
           to="/profile"
