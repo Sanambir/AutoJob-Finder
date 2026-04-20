@@ -72,7 +72,7 @@ def get_analytics(
     for i in range(7, -1, -1):
         week_start = now - timedelta(weeks=i + 1)
         week_end   = now - timedelta(weeks=i)
-        label = week_start.strftime("%-m/%-d") if hasattr(week_start, 'strftime') else week_start.strftime("%m/%d")
+        label = f"{week_start.month}/{week_start.day}"
         weekly[label] = 0
         for j in jobs:
             try:
