@@ -172,6 +172,8 @@ def list_users(
                 "job_count": total_counts.get(u.id, 0),
                 "emails_sent": emailed_counts.get(u.id, 0),
                 "last_active": last_active.get(u.id),
+                "tier": u.tier or "free",
+                "daily_searches_used": u.daily_searches_used or 0,
             }
             for u in users
         ],
@@ -209,6 +211,21 @@ def unlock_user(
     user.failed_login_attempts = 0
     db.commit()
     return {"message": f"Unlocked {user.email}"}
+
+
+@router.patch("/users/{user_id}/tier")
+def set_tier(
+    user_id: str,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Toggle a user's tier between 'free' and 'premium'."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.tier = "free" if (user.tier or "free") == "premium" else "premium"
+    db.commit()
+    return {"tier": user.tier, "email": user.email}
 
 
 @router.patch("/users/{user_id}/admin")

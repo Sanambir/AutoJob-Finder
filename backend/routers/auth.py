@@ -61,6 +61,8 @@ class UserResponse(BaseModel):
     match_threshold: int
     is_verified: bool
     is_admin: bool
+    tier: str = "free"
+    daily_searches_used: int = 0
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -126,6 +128,8 @@ def me(current_user: User = Depends(get_current_user)):
         match_threshold=current_user.match_threshold,
         is_verified=bool(current_user.is_verified),
         is_admin=bool(current_user.is_admin),
+        tier=current_user.tier or "free",
+        daily_searches_used=current_user.daily_searches_used or 0,
     )
 
 

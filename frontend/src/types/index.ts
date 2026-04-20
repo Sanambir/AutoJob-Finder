@@ -52,6 +52,8 @@ export interface User {
   has_resume: boolean;
   is_verified: boolean;
   is_admin: boolean;
+  tier: string;
+  daily_searches_used: number;
 }
 
 export interface Resume {

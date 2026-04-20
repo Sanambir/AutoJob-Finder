@@ -75,6 +75,9 @@ def migrate_new_columns():
         ("verification_token",    "TEXT"),
         ("is_admin",              "INTEGER DEFAULT 0 NOT NULL"),
         ("token_version",         "INTEGER DEFAULT 0 NOT NULL"),
+        ("tier",                  "TEXT DEFAULT 'free' NOT NULL"),
+        ("daily_searches_used",   "INTEGER DEFAULT 0 NOT NULL"),
+        ("last_search_date",      "TEXT"),
     ]:
         if col_name not in existing_users:
             cur.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")

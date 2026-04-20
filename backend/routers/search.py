@@ -290,6 +290,8 @@ async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False
     await _alog_activity(request.user_id, "pipeline", f"Pipeline complete — {len(job_ids)} jobs processed")
 
 
+SEARCH_LIMITS = {"free": 3, "premium": 10}
+
 @router.post("/search", response_model=SearchResponse)
 async def search_jobs(
     request: SearchRequest,
@@ -299,6 +301,26 @@ async def search_jobs(
 ):
     if not request.keywords and not current_user.resume_text:
         raise HTTPException(status_code=400, detail="Provide keywords or upload a resume first")
+
+    # ── Daily search limit (skip for admins) ─────────────────────────────────
+    if not current_user.is_admin:
+        today = datetime.date.today().isoformat()
+        tier  = current_user.tier or "free"
+        limit = SEARCH_LIMITS.get(tier, 3)
+
+        # Reset counter if it's a new day
+        if current_user.last_search_date != today:
+            current_user.daily_searches_used = 0
+            current_user.last_search_date = today
+
+        if current_user.daily_searches_used >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Daily search limit reached ({limit} searches/day on {tier} plan). Upgrade to Premium for more searches.",
+            )
+
+        current_user.daily_searches_used = (current_user.daily_searches_used or 0) + 1
+        db.commit()
 
     # Always load the full resume text from the DB — never trust what the
     # frontend sends (it only has the 120-char preview from the resumes list).

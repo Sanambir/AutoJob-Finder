@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, apiUpload } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../components/Toast'
-import type { Resume } from '../types'
+import type { Resume, User } from '../types'
 
 const PLATFORMS = [
   { id: 'linkedin',     label: 'LinkedIn',     stable: true },
@@ -22,7 +22,8 @@ const HOURS_OPTIONS = [
 ]
 
 export default function SearchPage() {
-  const user = useAuthStore(s => s.user)
+  const user    = useAuthStore(s => s.user)
+  const setAuth = useAuthStore(s => s.setAuth)
   const toast = useToast()
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -73,6 +74,11 @@ export default function SearchPage() {
     }
   }
 
+  const TIER_LIMITS: Record<string, number> = { free: 3, premium: 10 }
+  const tierLimit = TIER_LIMITS[user?.tier ?? 'free'] ?? 3
+  const searchesUsed = user?.daily_searches_used ?? 0
+  const atLimit = !user?.is_admin && searchesUsed >= tierLimit
+
   async function handleSearch(e: FormEvent) {
     e.preventDefault()
     if (!keywords.trim() && !activeResume) {
@@ -100,9 +106,16 @@ export default function SearchPage() {
       })
       toast(res.message)
       qc.invalidateQueries({ queryKey: ['jobs'] })
+      // Refresh user so the daily_searches_used counter updates immediately
+      apiFetch<User>('/auth/me').then(me => setAuth(me)).catch(() => {})
       navigate('/feed')
-    } catch (e) {
-      toast((e as Error).message, false)
+    } catch (err) {
+      const msg = (err as Error).message
+      if (msg.includes('Daily search limit')) {
+        toast(`Search limit reached (${searchesUsed}/${tierLimit}/day on ${user?.tier ?? 'free'} plan). Contact us to upgrade to Premium.`, false)
+      } else {
+        toast(msg, false)
+      }
     } finally {
       setSearching(false)
     }
@@ -271,13 +284,60 @@ export default function SearchPage() {
             </button>
           </div>
 
+          {/* Premium upgrade banner — shown to free tier users */}
+          {!user?.is_admin && (user?.tier ?? 'free') === 'free' && (
+            <div className="flex items-center gap-3 px-4 py-3 bg-violet-950/20 border border-violet-700/20 rounded-xl text-sm">
+              <span className="material-symbols-outlined text-violet-400 flex-shrink-0" style={{ fontSize: 18, fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+              <p className="text-white/50 text-xs leading-relaxed">
+                Need more searches?{' '}
+                <a
+                  href="mailto:contact@sanambir.com?subject=WorkfinderX Premium Upgrade"
+                  className="text-violet-300 hover:text-violet-200 underline underline-offset-2 transition-colors"
+                >
+                  Email us
+                </a>
+                {' '}to upgrade to Premium (10 searches/day).
+              </p>
+            </div>
+          )}
+
+          {/* Usage counter */}
+          {!user?.is_admin && (
+            <div className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm
+              ${atLimit
+                ? 'bg-amber-950/20 border-amber-700/30'
+                : 'bg-white/[0.03] border-white/[0.06]'
+              }`}>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-white/40" style={{ fontSize: 16 }}>
+                  {atLimit ? 'block' : 'manage_search'}
+                </span>
+                <span className={atLimit ? 'text-amber-300 font-medium' : 'text-white/50'}>
+                  {atLimit
+                    ? `Daily limit reached — ${tierLimit} searches/day on ${user?.tier ?? 'free'} plan`
+                    : `${searchesUsed} / ${tierLimit} searches used today`
+                  }
+                </span>
+              </div>
+              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${
+                (user?.tier ?? 'free') === 'premium'
+                  ? 'bg-violet-950/60 text-violet-300 border border-violet-700/30'
+                  : 'bg-white/5 text-white/40'
+              }`}>
+                {user?.tier ?? 'free'}
+              </span>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={searching}
+            disabled={searching || atLimit}
             className="w-full py-4 bg-white text-black font-bold text-sm rounded-xl hover:bg-white/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {searching
               ? <><span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />Searching…</>
+              : atLimit
+              ? <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>block</span>Limit Reached</>
               : <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>search</span>Start Search</>
             }
           </button>

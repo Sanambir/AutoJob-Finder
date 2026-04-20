@@ -10,6 +10,7 @@ interface AdminUser {
   locked_until: string | null; failed_attempts: number
   created_at: string | null; job_count: number
   emails_sent: number; last_active: string | null
+  tier: string; daily_searches_used: number
 }
 interface UsersPage { users: AdminUser[]; total: number; page: number; pages: number }
 
@@ -101,6 +102,10 @@ export default function AdminUsers() {
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-1">
                       {u.is_admin    && <Badge label="Admin"     color="bg-white/20 text-white" />}
+                      {u.tier === 'premium'
+                        ? <Badge label="Premium" color="bg-violet-950/60 text-violet-300 border border-violet-700/30" />
+                        : <Badge label="Free"    color="bg-white/5 text-white/40" />
+                      }
                       {u.is_verified && <Badge label="Verified"  color="bg-white/10 text-white/60" />}
                       {!u.is_verified && <Badge label="Unverified" color="bg-amber-950/60 text-amber-400 border border-amber-800/30" />}
                       {u.locked_until && new Date(u.locked_until) > new Date() &&
@@ -139,6 +144,16 @@ export default function AdminUsers() {
                           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>lock_open</span>
                         </button>
                       )}
+                      <button
+                        onClick={() => action(`/admin/users/${u.id}/tier`, 'PATCH',
+                          u.tier === 'premium' ? `Downgraded ${u.email} to Free` : `Upgraded ${u.email} to Premium`)}
+                        title={u.tier === 'premium' ? 'Downgrade to Free' : 'Upgrade to Premium'}
+                        className={`p-1.5 rounded-lg transition-all ${u.tier === 'premium' ? 'text-violet-400 hover:text-violet-300 hover:bg-violet-950/30' : 'text-white/30 hover:text-violet-400 hover:bg-violet-950/20'}`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                          {u.tier === 'premium' ? 'workspace_premium' : 'diamond'}
+                        </span>
+                      </button>
                       {u.id !== me?.id && (
                         <button
                           onClick={() => action(`/admin/users/${u.id}/admin`, 'PATCH',

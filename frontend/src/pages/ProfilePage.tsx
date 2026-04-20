@@ -165,6 +165,17 @@ export default function ProfilePage() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-white font-bold text-lg truncate">{profile?.name ?? user?.name}</h2>
+                {/* Tier badge */}
+                {(user?.tier ?? 'free') === 'premium' ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-violet-950/60 text-violet-300 text-[10px] font-bold rounded uppercase tracking-wide border border-violet-700/30">
+                    <span className="material-symbols-outlined" style={{ fontSize: 11, fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+                    Premium
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 bg-white/5 text-white/40 text-[10px] font-bold rounded uppercase tracking-wide">
+                    Free
+                  </span>
+                )}
                 {profile?.is_verified
                   ? (
                     <span className="flex items-center gap-1 px-2 py-0.5 bg-white/10 text-white/70 text-[10px] font-bold rounded uppercase tracking-wide">

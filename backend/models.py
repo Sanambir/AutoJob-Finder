@@ -28,6 +28,9 @@ class User(Base):
     verification_token    = Column(String, nullable=True)   # SHA-256 hash of raw token
     is_admin              = Column(Boolean, default=False, nullable=False)
     token_version         = Column(Integer, default=0, nullable=False)  # incremented on logout to invalidate all existing JWTs
+    tier                  = Column(String, default="free", nullable=False)  # "free" | "premium"
+    daily_searches_used   = Column(Integer, default=0, nullable=False)
+    last_search_date      = Column(String, nullable=True)  # ISO date "YYYY-MM-DD", resets counter daily
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
     jobs         = relationship("Job",          back_populates="user", cascade="all, delete-orphan")
