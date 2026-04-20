@@ -96,7 +96,13 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
 @router.post("/logout")
 def logout(response: Response):
     """Clear the auth cookie."""
-    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+    )
     return {"message": "Logged out"}
 
 

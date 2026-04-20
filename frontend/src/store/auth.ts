@@ -16,16 +16,16 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       setAuth: (user) => set({ user }),
       logout: async () => {
-        // Clear the query cache FIRST — this is the critical step that prevents
-        // a previous user's cached jobs/stats/resumes from being shown to the
-        // next user who logs in on the same browser session.
         queryClient.clear();
         try {
           await apiFetch('/auth/logout', { method: 'POST' });
         } catch {
           // Ignore errors — clear local state regardless
         }
-        set({ user: null });
+        set({ user: null }); // persist null to localStorage before reload
+        // Full page reload: re-initialises all JS modules (queryClient, Zustand)
+        // so zero in-memory state from the previous user survives into the next session.
+        window.location.replace('/login');
       },
     }),
     {

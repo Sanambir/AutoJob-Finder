@@ -1,10 +1,8 @@
 import { useState, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { LogoFull } from '../components/Logo'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../components/Toast'
-import { queryClient } from '../queryClient'
 import type { User } from '../types'
 
 interface TokenResponse {
@@ -25,7 +23,6 @@ export default function LoginPage() {
   const [loading, setLoading]   = useState(false)
 
   const setAuth = useAuthStore(s => s.setAuth)
-  const navigate = useNavigate()
   const toast    = useToast()
 
   async function handleAuth(e: FormEvent) {
@@ -44,12 +41,13 @@ export default function LoginPage() {
         })
       }
       // Cookie is now set by the server — fetch the user profile to populate the store.
-      // Clear the query cache before setting new auth state so no previous user's
-      // cached data (jobs, stats, resumes) leaks into this session.
-      queryClient.clear()
+      // Full page reload instead of SPA navigate: re-executes all JS modules so
+      // queryClient and all other module-level state starts completely fresh.
+      // This is the only reliable way to prevent previous-user data leaking into
+      // the new session (queryClient singleton, in-flight refetch intervals, etc.)
       const me = await apiFetch<Omit<User, 'has_resume'>>('/auth/me')
       setAuth({ ...me, has_resume: false, is_verified: me.is_verified ?? false })
-      navigate('/feed')
+      window.location.replace('/feed')
     } catch (err) {
       toast((err as Error).message, false)
     } finally {
