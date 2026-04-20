@@ -28,6 +28,7 @@ export default function FeedPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', filter, page],
     queryFn: () => apiFetch<JobsPage>(`/jobs?page=${page}&page_size=${PAGE_SIZE}${filter ? `&status=${filter}` : ''}`),
+    refetchOnMount: 'always',   // always fetch fresh on mount, never show stale feed
     refetchInterval: (query) => {
       const jobs = query.state.data?.jobs ?? []
       return jobs.some(j => IN_PROGRESS.includes(j.status)) ? 3000 : 5_000

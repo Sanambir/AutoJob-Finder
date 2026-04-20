@@ -7,7 +7,7 @@ import App from './App'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 10_000,
+      staleTime: 0,   // always refetch on mount — prevents stale empty cache blocking the feed
       retry: 1,
     },
   },
