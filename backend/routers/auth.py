@@ -73,7 +73,7 @@ def register(
     db: Session = Depends(get_db),
 ):
     user, raw_token = create_user(db, email=payload.email, name=payload.name, password=payload.password)
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": user.id, "tv": user.token_version or 0})
     _set_auth_cookie(response, token)
     background_tasks.add_task(_send_verification_email, user.email, user.name, raw_token)
     return TokenResponse(user_id=user.id, name=user.name, email=user.email)
@@ -88,14 +88,25 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
         )
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": user.id, "tv": user.token_version or 0})
     _set_auth_cookie(response, token)
     return TokenResponse(user_id=user.id, name=user.name, email=user.email)
 
 
 @router.post("/logout")
-def logout(response: Response):
-    """Clear the auth cookie."""
+def logout(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Invalidate the session server-side and clear the auth cookie.
+
+    Incrementing token_version makes every previously-issued JWT for this
+    user immediately invalid — the backend will reject them with 401 even
+    if the browser still holds the old cookie.
+    """
+    current_user.token_version = (current_user.token_version or 0) + 1
+    db.commit()
     response.delete_cookie(
         key="access_token",
         path="/",

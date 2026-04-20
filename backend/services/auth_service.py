@@ -81,6 +81,17 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    # Server-side logout enforcement: if the token was issued before the last
+    # logout, its token_version will be lower than the user's current value.
+    jwt_tv = payload.get("tv", 0)
+    if jwt_tv != (user.token_version or 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired — please log in again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user
 
 
