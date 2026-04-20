@@ -101,6 +101,12 @@ async def add_security_headers(request: Request, call_next) -> Response:
     response.headers["Referrer-Policy"]           = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"]        = "camera=(), microphone=(), geolocation=()"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # All API responses are user-specific — tell every proxy and browser NOT to
+    # cache them. Without this, reverse proxies (Traefik, nginx) can serve one
+    # user's response to another user who hits the same URL.
+    if request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"]        = "no-cache"
     return response
 
 # ── Routers ───────────────────────────────────────────────────────────────────

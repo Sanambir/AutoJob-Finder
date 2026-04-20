@@ -1,4 +1,4 @@
-import { useState, useRef, FormEvent } from 'react'
+import { useState, useRef, useEffect, FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, apiUpload } from '../api/client'
@@ -25,6 +25,12 @@ export default function SearchPage() {
   const user    = useAuthStore(s => s.user)
   const setAuth = useAuthStore(s => s.setAuth)
   const toast = useToast()
+
+  // Refresh user on mount so tier + daily_searches_used are always current.
+  // An admin may have changed the tier while this tab was already open.
+  useEffect(() => {
+    apiFetch<User>('/auth/me').then(me => setAuth(me)).catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const qc = useQueryClient()
   const navigate = useNavigate()
   const fileRef = useRef<HTMLInputElement>(null)
