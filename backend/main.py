@@ -105,8 +105,9 @@ async def add_security_headers(request: Request, call_next) -> Response:
     # cache them. Without this, reverse proxies (Traefik, nginx) can serve one
     # user's response to another user who hits the same URL.
     if request.url.path.startswith("/api"):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
         response.headers["Pragma"]        = "no-cache"
+        response.headers["Vary"]          = "Cookie, Authorization"
     return response
 
 # ── Routers ───────────────────────────────────────────────────────────────────
