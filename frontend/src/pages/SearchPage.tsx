@@ -1,5 +1,6 @@
 import { useState, useRef, FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { apiFetch, apiUpload } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../components/Toast'
@@ -24,6 +25,7 @@ export default function SearchPage() {
   const user = useAuthStore(s => s.user)
   const toast = useToast()
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [keywords, setKeywords]         = useState('')
@@ -98,6 +100,7 @@ export default function SearchPage() {
       })
       toast(res.message)
       qc.invalidateQueries({ queryKey: ['jobs'] })
+      navigate('/feed')
     } catch (e) {
       toast((e as Error).message, false)
     } finally {

@@ -21,6 +21,8 @@ export default function ConfigPage() {
   const [threshold, setThreshold]         = useState(75)
   const [schedEnabled, setSchedEnabled]   = useState(false)
   const [schedTime, setSchedTime]         = useState('09:00')
+  const [schedKeywords, setSchedKeywords] = useState('')
+  const [schedLocation, setSchedLocation] = useState('Remote')
   const [apiOk, setApiOk]                 = useState<boolean | null>(null)
   const [savedAt, setSavedAt]             = useState<string | null>(null)
   const [saving, setSaving]               = useState(false)
@@ -48,6 +50,8 @@ export default function ConfigPage() {
     if (sched) {
       setSchedEnabled(!!sched.enabled)
       setSchedTime(sched.run_time || '09:00')
+      setSchedKeywords(sched.keywords || '')
+      setSchedLocation(sched.location || 'Remote')
     }
   }, [sched])
 
@@ -89,8 +93,8 @@ export default function ConfigPage() {
       await apiFetch('/schedule', {
         method: 'PUT',
         body: JSON.stringify({
-          keywords:         existingSched?.keywords         ?? '',
-          location:         existingSched?.location         ?? 'Remote',
+          keywords:         schedKeywords.trim(),
+          location:         schedLocation.trim() || 'Remote',
           platforms:        existingSched?.platforms        ?? ['linkedin', 'indeed'],
           results_per_site: existingSched?.results_per_site ?? 10,
           hours_old:        existingSched?.hours_old        ?? 168,
@@ -275,11 +279,11 @@ export default function ConfigPage() {
 
               {/* Daily Auto-Search */}
               <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-xl p-5">
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-5">
                   <div>
                     <h4 className="text-sm font-semibold text-white">Daily Auto-Search</h4>
                     <p className="text-xs text-white/40">
-                      {schedEnabled ? `Runs daily at ${schedTime} UTC` : 'Recurrence Interval'}
+                      {schedEnabled ? `Runs daily at ${schedTime} UTC` : 'Enable to run automatically'}
                     </p>
                   </div>
                   <button
@@ -296,16 +300,47 @@ export default function ConfigPage() {
                     />
                   </button>
                 </div>
-                <div className="flex items-center gap-3 bg-[#0a0a0a] rounded-lg p-3 border border-white/5">
-                  <span className="material-symbols-outlined text-white/40" style={{ fontSize: 18 }}>schedule</span>
-                  <select
-                    value={schedTime}
-                    onChange={e => setSchedTime(e.target.value)}
-                    className="bg-transparent text-sm font-bold text-white flex-1 focus:outline-none cursor-pointer"
-                  >
-                    {TIMES.map(t => <option key={t} value={t}>{TIME_LABELS[t]}</option>)}
-                  </select>
-                  <span className="text-xs text-white/20 uppercase font-bold tracking-widest">UTC</span>
+
+                <div className="space-y-3">
+                  {/* Keywords */}
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Keywords</label>
+                    <input
+                      type="text"
+                      value={schedKeywords}
+                      onChange={e => setSchedKeywords(e.target.value)}
+                      placeholder="e.g. Senior React Developer…"
+                      className="w-full bg-[#0a0a0a] border border-white/5 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/20"
+                    />
+                  </div>
+
+                  {/* Location */}
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Location</label>
+                    <input
+                      type="text"
+                      value={schedLocation}
+                      onChange={e => setSchedLocation(e.target.value)}
+                      placeholder="Remote, New York…"
+                      className="w-full bg-[#0a0a0a] border border-white/5 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/20"
+                    />
+                  </div>
+
+                  {/* Time */}
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Run time</label>
+                    <div className="flex items-center gap-3 bg-[#0a0a0a] rounded-lg px-3 py-2 border border-white/5">
+                      <span className="material-symbols-outlined text-white/40" style={{ fontSize: 16 }}>schedule</span>
+                      <select
+                        value={schedTime}
+                        onChange={e => setSchedTime(e.target.value)}
+                        className="bg-transparent text-sm font-bold text-white flex-1 focus:outline-none cursor-pointer"
+                      >
+                        {TIMES.map(t => <option key={t} value={t}>{TIME_LABELS[t]}</option>)}
+                      </select>
+                      <span className="text-[10px] text-white/20 uppercase font-bold tracking-widest">UTC</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

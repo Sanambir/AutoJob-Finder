@@ -60,9 +60,9 @@ function KanbanColumn({ stage, jobs, onClick }: { stage: typeof STAGES[0]; jobs:
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
 
   return (
-    <div className="flex flex-col min-w-[220px] flex-1">
+    <div className="flex flex-col min-w-[220px] flex-1 h-full overflow-hidden">
       {/* Column header */}
-      <div className="flex items-center justify-between mb-3 px-1">
+      <div className="flex items-center justify-between mb-3 px-1 flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ background: stage.color }} />
           <span className="text-white/70 text-xs font-semibold">{stage.label}</span>
@@ -70,10 +70,10 @@ function KanbanColumn({ stage, jobs, onClick }: { stage: typeof STAGES[0]; jobs:
         <span className="text-white/30 text-[10px] font-bold">{jobs.length}</span>
       </div>
 
-      {/* Drop zone */}
+      {/* Drop zone — overflow-y-auto lets cards scroll within the column */}
       <div
         ref={setNodeRef}
-        className={`flex-1 flex flex-col gap-2 min-h-[200px] rounded-xl p-2 transition-colors
+        className={`flex-1 overflow-y-auto flex flex-col gap-2 min-h-[200px] rounded-xl p-2 transition-colors
           ${isOver ? 'bg-white/5 border border-dashed border-white/20' : 'bg-white/[0.01] border border-transparent'}`}
       >
         {jobs.map(job => (
@@ -106,10 +106,10 @@ export default function BoardPage() {
 
   const { data: savedIds = [] } = useQuery({
     queryKey: ['saved'],
-    queryFn: () => apiFetch<{ job_id: string }[]>('/saved'),
+    queryFn: () => apiFetch<Job[]>('/saved'),
   })
 
-  const savedSet = new Set(savedIds.map(s => s.job_id))
+  const savedSet = new Set(savedIds.map(s => s.id))
   const allJobs = data?.jobs ?? []
   const jobs = savedOnly ? allJobs.filter(j => savedSet.has(j.id)) : allJobs
 
