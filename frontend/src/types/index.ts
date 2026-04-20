@@ -30,6 +30,10 @@ export interface Job {
   salary_min: string | null;
   salary_max: string | null;
   job_type: string | null;
+  interview_prep: string | null;
+  deadline: string | null;
+  is_expired: boolean;
+  resume_id: string | null;
 }
 
 export interface JobsPage {

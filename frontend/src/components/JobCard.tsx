@@ -17,27 +17,60 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
+function deadlineBadge(dateStr: string | null) {
+  if (!dateStr) return null
+  const days = Math.ceil((new Date(dateStr).getTime() - new Date().setHours(0,0,0,0)) / 86_400_000)
+  if (days < 0)  return { label: `${Math.abs(days)}d overdue`, color: 'text-red-400' }
+  if (days === 0) return { label: 'Due today!',  color: 'text-orange-400' }
+  if (days <= 3)  return { label: `${days}d left`, color: 'text-orange-400' }
+  return { label: `${days}d left`, color: 'text-white/30' }
+}
+
 interface Props {
   job: Job
   bookmarked?: boolean
   onClick: () => void
   onBookmark?: () => void
+  // Bulk selection
+  selectable?: boolean
+  selected?: boolean
+  onSelect?: (id: string, checked: boolean) => void
 }
 
-export default function JobCard({ job, bookmarked, onClick, onBookmark }: Props) {
+export default function JobCard({ job, bookmarked, onClick, onBookmark, selectable, selected, onSelect }: Props) {
   const isLive = IN_PROGRESS.includes(job.status)
+  const dl = deadlineBadge(job.deadline)
 
   return (
     <div
-      onClick={onClick}
-      className="bg-[#1a1a1a] border border-white/[0.06] rounded-xl p-5 cursor-pointer hover:border-white/20 hover:bg-[#1e1e1e] transition-all group relative"
+      onClick={selectable ? undefined : onClick}
+      className={`bg-[#1a1a1a] border rounded-xl p-5 transition-all group relative
+        ${selectable ? 'cursor-default' : 'cursor-pointer hover:border-white/20 hover:bg-[#1e1e1e]'}
+        ${selected ? 'border-white/30 bg-[#1e1e1e]' : 'border-white/[0.06]'}
+      `}
     >
       {/* Live pulse */}
-      {isLive && (
+      {isLive && !selectable && (
         <span className="absolute top-3 right-3 w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
       )}
 
-      <div className="flex items-start gap-4">
+      {/* Checkbox (bulk mode) */}
+      {selectable && (
+        <div className="absolute top-3 right-3">
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={e => { e.stopPropagation(); onSelect?.(job.id, e.target.checked) }}
+            className="w-4 h-4 accent-white cursor-pointer"
+          />
+        </div>
+      )}
+
+      <div
+        className="flex items-start gap-4"
+        onClick={selectable ? () => onClick() : undefined}
+        style={selectable ? { cursor: 'pointer' } : undefined}
+      >
         {/* Score ring or placeholder */}
         <div className="flex-shrink-0">
           {job.match_score != null
@@ -56,7 +89,7 @@ export default function JobCard({ job, bookmarked, onClick, onBookmark }: Props)
               <h3 className="text-white font-semibold text-sm truncate">{job.title}</h3>
               <p className="text-white/50 text-xs mt-0.5 truncate">{job.company}</p>
             </div>
-            {onBookmark && (
+            {onBookmark && !selectable && (
               <button
                 onClick={e => { e.stopPropagation(); onBookmark() }}
                 className="flex-shrink-0 text-white/20 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
@@ -72,6 +105,11 @@ export default function JobCard({ job, bookmarked, onClick, onBookmark }: Props)
           {/* Meta row */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <StatusBadge status={job.status} />
+            {job.is_expired && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/10 text-red-400 border border-red-500/20 uppercase">
+                Expired
+              </span>
+            )}
             {job.platform && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/5 text-white/40 uppercase">
                 {job.platform}
@@ -96,6 +134,14 @@ export default function JobCard({ job, bookmarked, onClick, onBookmark }: Props)
                 </span>
               )}
             </div>
+          )}
+
+          {/* Deadline countdown */}
+          {dl && (
+            <p className={`text-[10px] font-semibold mt-1.5 ${dl.color}`}>
+              <span className="material-symbols-outlined align-middle" style={{ fontSize: 10 }}>schedule</span>
+              {' '}{dl.label}
+            </p>
           )}
         </div>
       </div>

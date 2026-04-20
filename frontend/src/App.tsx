@@ -14,6 +14,7 @@ import BoardPage from './pages/BoardPage'
 import ConfigPage from './pages/ConfigPage'
 import VerifyPage from './pages/VerifyPage'
 import ProfilePage from './pages/ProfilePage'
+import AnalyticsPage from './pages/AnalyticsPage'
 import AdminLayout from './pages/admin/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminUsers from './pages/admin/AdminUsers'
@@ -127,8 +128,9 @@ export default function App() {
             <Route path="search"  element={<SearchPage />} />
             <Route path="saved"   element={<SavedPage />} />
             <Route path="board"   element={<BoardPage />} />
-            <Route path="config"  element={<ConfigPage />} />
-            <Route path="profile" element={<ProfilePage />} />
+            <Route path="config"    element={<ConfigPage />} />
+            <Route path="profile"   element={<ProfilePage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/feed" replace />} />

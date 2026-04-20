@@ -7,11 +7,12 @@ import { LogoMark } from './Logo'
 import type { ActivityLog } from '../types'
 
 const NAV = [
-  { to: '/feed',    icon: 'dashboard',   label: 'Feed' },
-  { to: '/search',  icon: 'search',      label: 'Search' },
-  { to: '/saved',   icon: 'bookmark',    label: 'Saved' },
-  { to: '/board',   icon: 'view_kanban', label: 'Board' },
-  { to: '/config',  icon: 'tune',        label: 'Config' },
+  { to: '/feed',      icon: 'dashboard',   label: 'Feed' },
+  { to: '/search',    icon: 'search',      label: 'Search' },
+  { to: '/saved',     icon: 'bookmark',    label: 'Saved' },
+  { to: '/board',     icon: 'view_kanban', label: 'Board' },
+  { to: '/analytics', icon: 'bar_chart',   label: 'Analytics' },
+  { to: '/config',    icon: 'tune',        label: 'Config' },
 ]
 
 export default function Sidebar() {

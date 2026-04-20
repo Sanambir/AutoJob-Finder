@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
-import type { Job } from '../types'
+import type { Job, Resume } from '../types'
 import StatusBadge from './StatusBadge'
 import { apiFetch } from '../api/client'
 import { useToast } from './Toast'
@@ -13,48 +13,75 @@ interface Props {
 
 const KANBAN_STAGES = ['discovered', 'applied', 'interview', 'offer', 'rejected'] as const
 
+function daysUntil(dateStr: string | null): number | null {
+  if (!dateStr) return null
+  const diff = new Date(dateStr).getTime() - new Date().setHours(0, 0, 0, 0)
+  return Math.ceil(diff / 86_400_000)
+}
+
 export default function JobDrawer({ job, onClose, onStageChange }: Props) {
   const [notes, setNotes]               = useState('')
   const [savingNotes, setSavingNotes]   = useState(false)
   const [descOpen, setDescOpen]         = useState(false)
   const [generating, setGenerating]     = useState(false)
-  // Local copies so the drawer updates immediately when tailoring completes
-  // without the user needing to close and reopen.
+  const [generatingPrep, setGeneratingPrep] = useState(false)
   const [coverLetter, setCoverLetter]           = useState<string | null>(null)
   const [resumeSuggestions, setResumeSuggestions] = useState<string | null>(null)
+  const [interviewPrep, setInterviewPrep]         = useState<string | null>(null)
+  // Resume A/B
+  const [selectedResumeId, setSelectedResumeId] = useState<string>('')
+  const [deadline, setDeadline] = useState<string>('')
+  const [savingDeadline, setSavingDeadline] = useState(false)
+
   const toast = useToast()
   const qc = useQueryClient()
+
+  // Fetch user resumes for A/B picker
+  const { data: resumes = [] } = useQuery({
+    queryKey: ['resumes'],
+    queryFn: () => apiFetch<Resume[]>('/user/resumes'),
+    staleTime: 60_000,
+  })
 
   // Reset local state whenever a different job is opened
   useEffect(() => {
     setNotes(job?.notes ?? '')
     setDescOpen(false)
     setGenerating(false)
+    setGeneratingPrep(false)
     setCoverLetter(job?.cover_letter ?? null)
     setResumeSuggestions(job?.resume_suggestions ?? null)
+    setInterviewPrep(job?.interview_prep ?? null)
+    setDeadline(job?.deadline ?? '')
+    // Pre-select the resume that was used for this job
+    setSelectedResumeId(job?.resume_id ?? '')
   }, [job?.id])
 
-  // While generating, poll the individual job every 2s until cover_letter appears.
+  // Poll for cover letter completion
   const { data: freshJob } = useQuery({
     queryKey: ['job-detail', job?.id],
     queryFn:  () => apiFetch<Job>(`/jobs/${job!.id}`),
-    enabled:  generating && !!job?.id,
+    enabled:  (generating || generatingPrep) && !!job?.id,
     refetchInterval: 2000,
   })
 
   useEffect(() => {
-    if (!generating || !freshJob) return
-    if (freshJob.cover_letter) {
+    if (!freshJob) return
+    if (generating && freshJob.cover_letter) {
       setCoverLetter(freshJob.cover_letter)
       setResumeSuggestions(freshJob.resume_suggestions)
       setGenerating(false)
-      // Sync the global feed/board caches so the cards update too
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['jobs-board'] })
       qc.invalidateQueries({ queryKey: ['saved-full'] })
       toast('Cover letter generated!')
     }
-  }, [freshJob?.cover_letter, generating]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (generatingPrep && freshJob.interview_prep) {
+      setInterviewPrep(freshJob.interview_prep)
+      setGeneratingPrep(false)
+      toast('Interview prep ready!')
+    }
+  }, [freshJob?.cover_letter, freshJob?.interview_prep, generating, generatingPrep]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveNotes() {
     if (!job) return
@@ -70,6 +97,24 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
       toast((e as Error).message, false)
     } finally {
       setSavingNotes(false)
+    }
+  }
+
+  async function saveDeadline(value: string) {
+    if (!job) return
+    setSavingDeadline(true)
+    try {
+      await apiFetch(`/jobs/${job.id}/deadline`, {
+        method: 'PATCH',
+        body: JSON.stringify({ deadline: value || null }),
+      })
+      setDeadline(value)
+      toast(value ? 'Deadline saved!' : 'Deadline cleared.')
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+    } catch (e) {
+      toast((e as Error).message, false)
+    } finally {
+      setSavingDeadline(false)
     }
   }
 
@@ -99,16 +144,29 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
     if (!job) return
     setGenerating(true)
     try {
-      await apiFetch(`/jobs/${job.id}/tailor`, { method: 'POST' })
-      // generating=true starts the polling query above; it will fire every 2s
-      // and call setCoverLetter when the backend finishes.
+      const body = selectedResumeId ? JSON.stringify({ resume_id: selectedResumeId }) : undefined
+      await apiFetch(`/jobs/${job.id}/tailor`, { method: 'POST', body })
     } catch (e) {
       toast((e as Error).message, false)
       setGenerating(false)
     }
   }
 
+  async function generateInterviewPrep() {
+    if (!job) return
+    setGeneratingPrep(true)
+    try {
+      await apiFetch(`/jobs/${job.id}/interview-prep`, { method: 'POST' })
+    } catch (e) {
+      toast((e as Error).message, false)
+      setGeneratingPrep(false)
+    }
+  }
+
   if (!job) return null
+
+  const days = daysUntil(deadline)
+  const deadlineColor = days === null ? '' : days < 0 ? 'text-red-400' : days <= 2 ? 'text-orange-400' : 'text-green-400'
 
   return (
     <>
@@ -124,6 +182,11 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
             <p className="text-white/50 text-sm mt-0.5">{job.company}</p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <StatusBadge status={job.status} />
+              {job.is_expired && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+                  EXPIRED
+                </span>
+              )}
               {job.platform && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/5 text-white/40 uppercase">
                   {job.platform}
@@ -131,6 +194,11 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
               )}
               {job.date_posted && (
                 <span className="text-[10px] text-white/30">{job.date_posted}</span>
+              )}
+              {days !== null && (
+                <span className={`text-[10px] font-semibold ${deadlineColor}`}>
+                  {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today!' : `${days}d left`}
+                </span>
               )}
             </div>
           </div>
@@ -224,6 +292,40 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
             </div>
           </div>
 
+          {/* Deadline */}
+          <div>
+            <p className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Application Deadline</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={deadline}
+                onChange={e => setDeadline(e.target.value)}
+                className="flex-1 bg-[#1a1a1a] border border-white/[0.06] rounded-xl px-4 py-2.5 text-white/80 text-sm focus:outline-none focus:border-white/20 [color-scheme:dark]"
+              />
+              <button
+                onClick={() => saveDeadline(deadline)}
+                disabled={savingDeadline}
+                className="px-3 py-2.5 bg-white/5 text-white/60 text-xs font-semibold rounded-xl hover:bg-white/10 transition-colors disabled:opacity-50"
+              >
+                {savingDeadline ? '…' : 'Save'}
+              </button>
+              {deadline && (
+                <button
+                  onClick={() => saveDeadline('')}
+                  className="text-white/30 hover:text-white/60 transition-colors"
+                  title="Clear deadline"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                </button>
+              )}
+            </div>
+            {days !== null && (
+              <p className={`text-xs mt-1.5 font-medium ${deadlineColor}`}>
+                {days < 0 ? `${Math.abs(days)} day(s) overdue` : days === 0 ? 'Due today!' : `${days} day(s) remaining`}
+              </p>
+            )}
+          </div>
+
           {/* Resume suggestions */}
           {resumeSuggestions && (
             <div className="bg-[#1a1a1a] rounded-xl p-5 border border-white/[0.06]">
@@ -261,6 +363,28 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
               </div>
             </div>
 
+            {/* Resume A/B picker */}
+            {resumes.length > 1 && (
+              <div className="mb-3">
+                <p className="text-white/30 text-[10px] uppercase tracking-wider mb-1">Use resume</p>
+                <select
+                  value={selectedResumeId}
+                  onChange={e => setSelectedResumeId(e.target.value)}
+                  className="w-full bg-[#111] border border-white/[0.06] rounded-lg px-3 py-2 text-white/70 text-xs focus:outline-none focus:border-white/20"
+                >
+                  <option value="">Default (last used)</option>
+                  {resumes.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                {job.resume_id && (
+                  <p className="text-white/25 text-[10px] mt-1">
+                    Last tailored with: {resumes.find(r => r.id === job.resume_id)?.name ?? 'unknown resume'}
+                  </p>
+                )}
+              </div>
+            )}
+
             {coverLetter ? (
               <p className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap line-clamp-6">{coverLetter}</p>
             ) : generating ? (
@@ -282,6 +406,46 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
                   <p className="text-white/25 text-[11px]">
                     This job scored below your threshold but you can still generate a cover letter.
                   </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Interview Prep */}
+          <div className="bg-[#1a1a1a] rounded-xl p-5 border border-white/[0.06]">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-wider">Interview Prep</p>
+              {interviewPrep && (
+                <button
+                  onClick={generateInterviewPrep}
+                  disabled={generatingPrep}
+                  title="Regenerate"
+                  className="text-white/30 hover:text-white/60 transition-colors disabled:opacity-40"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>refresh</span>
+                </button>
+              )}
+            </div>
+
+            {interviewPrep ? (
+              <p className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap">{interviewPrep}</p>
+            ) : generatingPrep ? (
+              <div className="flex items-center gap-3 py-4">
+                <span className="w-4 h-4 border-2 border-white/20 border-t-white/70 rounded-full animate-spin flex-shrink-0" />
+                <span className="text-white/40 text-sm">Generating interview prep… 15–30 seconds</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-white/30 text-sm">No interview prep yet.</p>
+                <button
+                  onClick={generateInterviewPrep}
+                  className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white text-xs font-bold rounded-lg hover:bg-white/20 transition-colors"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>quiz</span>
+                  Generate Interview Prep
+                </button>
+                {job.kanban_stage === 'interview' && (
+                  <p className="text-blue-400/60 text-[11px]">You're in the interview stage — prep now!</p>
                 )}
               </div>
             )}

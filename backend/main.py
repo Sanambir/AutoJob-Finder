@@ -12,6 +12,7 @@ from routers import score, tailor, email_router, jobs, pipeline, config_router, 
 from routers import auth, saved_jobs, schedule as schedule_router
 from routers import user_router, activity as activity_router
 from routers import admin as admin_router
+from routers import analytics as analytics_router
 
 
 @asynccontextmanager
@@ -116,6 +117,7 @@ app.include_router(schedule_router.router,   prefix="/api", tags=["Schedule"])
 app.include_router(user_router.router,       prefix="/api", tags=["User Profile"])
 app.include_router(activity_router.router,   prefix="/api", tags=["Activity"])
 app.include_router(admin_router.router,      prefix="/api", tags=["Admin"])
+app.include_router(analytics_router.router,  prefix="/api", tags=["Analytics"])
 
 
 @app.get("/health", tags=["Health"])

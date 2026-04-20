@@ -52,10 +52,14 @@ def migrate_new_columns():
     cur.execute("PRAGMA table_info(jobs)")
     existing_jobs = {row[1] for row in cur.fetchall()}
     for col_name, col_type in [
-        ("notes",      "TEXT"),
-        ("salary_min", "TEXT"),
-        ("salary_max", "TEXT"),
-        ("job_type",   "TEXT"),
+        ("notes",           "TEXT"),
+        ("salary_min",      "TEXT"),
+        ("salary_max",      "TEXT"),
+        ("job_type",        "TEXT"),
+        ("interview_prep",  "TEXT"),
+        ("deadline",        "TEXT"),
+        ("is_expired",      "INTEGER DEFAULT 0"),
+        ("resume_id",       "TEXT"),
     ]:
         if col_name not in existing_jobs:
             cur.execute(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}")

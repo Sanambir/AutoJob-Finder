@@ -54,6 +54,10 @@ class JobRecord(BaseModel):
     salary_min: Optional[str] = None
     salary_max: Optional[str] = None
     job_type: Optional[str] = None
+    interview_prep: Optional[str] = None
+    deadline: Optional[str] = None
+    is_expired: bool = False
+    resume_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -72,6 +76,10 @@ def _to_record(job: Job) -> dict:
         "kanban_stage": job.kanban_stage or "discovered",
         "notes": job.notes, "salary_min": job.salary_min,
         "salary_max": job.salary_max, "job_type": job.job_type,
+        "interview_prep": job.interview_prep,
+        "deadline": job.deadline,
+        "is_expired": bool(job.is_expired),
+        "resume_id": job.resume_id,
     }
 
 
@@ -366,8 +374,12 @@ def update_job(job_id: str, db: Session = None, **kwargs):
 
 # ── Cover letter / tailoring on-demand ───────────────────────────────────────
 
-async def _tailor_job_background(job_id: str, user_id: str):
-    """Run just the tailoring step (resume suggestions + cover letter) for any existing job."""
+async def _tailor_job_background(job_id: str, user_id: str, resume_id: Optional[str] = None):
+    """Run just the tailoring step (resume suggestions + cover letter) for any existing job.
+
+    If resume_id is provided, fetch that specific resume and use it instead of the job's
+    stored resume text — this enables Resume A/B comparison.
+    """
     import asyncio
     from services.tailor_service import tailor_documents
     from routers.activity import log_activity
@@ -376,18 +388,27 @@ async def _tailor_job_background(job_id: str, user_id: str):
 
     def _load_job():
         from database import SessionLocal
+        from models import Resume as ResumeModel
         db = SessionLocal()
         try:
             job = db.query(Job).filter(Job.id == job_id).first()
             if not job:
                 return None
+            resume_text = job.resume or ""
+            used_resume_id = job.resume_id
+            if resume_id:
+                r = db.query(ResumeModel).filter(ResumeModel.id == resume_id).first()
+                if r:
+                    resume_text = r.resume_text
+                    used_resume_id = resume_id
             return {
-                "resume": job.resume or "",
+                "resume": resume_text,
                 "job_description": job.job_description or "",
                 "title": job.title or "",
                 "company": job.company or "",
                 "applicant_name": job.applicant_name or "Applicant",
                 "missing_skills": job.missing_skills or [],
+                "used_resume_id": used_resume_id,
             }
         finally:
             db.close()
@@ -409,6 +430,7 @@ async def _tailor_job_background(job_id: str, user_id: str):
             update_job, job_id,
             resume_suggestions=td["resume_suggestions"],
             cover_letter=td["cover_letter"],
+            resume_id=data["used_resume_id"],
         )
         await asyncio.to_thread(
             log_activity, user_id, "tailored",
@@ -422,24 +444,183 @@ async def _tailor_job_background(job_id: str, user_id: str):
         )
 
 
+class TailorRequest(BaseModel):
+    resume_id: Optional[str] = None   # if set, tailor with this specific saved resume
+
+
 @router.post("/jobs/{job_id}/tailor")
 async def generate_cover_letter(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    body: TailorRequest = TailorRequest(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate (or regenerate) resume suggestions and a cover letter for any job.
+    Pass resume_id in the body to tailor using a specific saved resume (A/B testing).
+    """
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.resume and not body.resume_id:
+        raise HTTPException(status_code=400, detail="No resume attached — run a search with an active resume first.")
+    if not job.job_description:
+        raise HTTPException(status_code=400, detail="No job description available for this job.")
+
+    background_tasks.add_task(_tailor_job_background, job_id, current_user.id, body.resume_id)
+    return {"status": "tailoring", "message": "Generating cover letter and resume suggestions…"}
+
+
+# ── Interview prep on-demand ──────────────────────────────────────────────────
+
+async def _interview_prep_background(job_id: str, user_id: str):
+    """Generate an interview preparation guide for an existing job."""
+    import asyncio
+    from services.tailor_service import generate_interview_prep
+    from routers.activity import log_activity
+    import logging
+    _log = logging.getLogger(__name__)
+
+    def _load_job():
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if not job:
+                return None
+            return {
+                "resume": job.resume or "",
+                "job_description": job.job_description or "",
+                "title": job.title or "",
+                "company": job.company or "",
+            }
+        finally:
+            db.close()
+
+    data = await asyncio.to_thread(_load_job)
+    if not data:
+        return
+
+    try:
+        prep = await generate_interview_prep(
+            resume=data["resume"],
+            job_description=data["job_description"],
+            job_title=data["title"],
+            company_name=data["company"],
+        )
+        await asyncio.to_thread(update_job, job_id, interview_prep=prep)
+        await asyncio.to_thread(
+            log_activity, user_id, "interview_prep",
+            f"Interview prep generated for {data['title']} at {data['company']}", job_id,
+        )
+        _log.info("Interview prep generated for job %s", job_id)
+    except Exception as e:
+        _log.warning("Interview prep failed for job %s: %s", job_id, e)
+
+
+@router.post("/jobs/{job_id}/interview-prep")
+async def generate_interview_prep_endpoint(
     job_id: str,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Generate (or regenerate) resume suggestions and a cover letter for any job."""
+    """Generate (or regenerate) an interview prep guide for any job."""
     job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if not job.resume:
-        raise HTTPException(status_code=400, detail="No resume attached — run a search with an active resume first.")
     if not job.job_description:
         raise HTTPException(status_code=400, detail="No job description available for this job.")
 
-    background_tasks.add_task(_tailor_job_background, job_id, current_user.id)
-    return {"status": "tailoring", "message": "Generating cover letter and resume suggestions…"}
+    background_tasks.add_task(_interview_prep_background, job_id, current_user.id)
+    return {"status": "generating", "message": "Generating interview prep guide…"}
+
+
+# ── Deadline endpoint ─────────────────────────────────────────────────────────
+
+class DeadlineUpdate(BaseModel):
+    deadline: Optional[str] = None   # ISO date "YYYY-MM-DD" or null to clear
+
+
+@router.patch("/jobs/{job_id}/deadline")
+def update_deadline(
+    job_id: str,
+    body: DeadlineUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job.deadline = body.deadline
+    job.updated_at = datetime.utcnow().isoformat() + "Z"
+    db.commit()
+    return {"job_id": job_id, "deadline": job.deadline}
+
+
+# ── Bulk actions ──────────────────────────────────────────────────────────────
+
+class BulkJobIds(BaseModel):
+    job_ids: List[str]
+
+
+class BulkStageUpdate(BaseModel):
+    job_ids: List[str]
+    stage: str
+
+
+@router.post("/jobs/bulk-tailor")
+async def bulk_tailor(
+    body: BulkJobIds,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Queue cover-letter + resume-suggestions generation for multiple jobs."""
+    queued = []
+    for job_id in body.job_ids[:20]:   # cap at 20 to avoid abuse
+        job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+        if job and job.resume and job.job_description:
+            background_tasks.add_task(_tailor_job_background, job_id, current_user.id)
+            queued.append(job_id)
+    return {"queued": len(queued), "job_ids": queued}
+
+
+@router.patch("/jobs/bulk-stage")
+def bulk_stage(
+    body: BulkStageUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Move multiple jobs to a kanban stage."""
+    if body.stage not in KANBAN_STAGES:
+        raise HTTPException(status_code=400, detail=f"Invalid stage: {body.stage}")
+    updated = 0
+    for job_id in body.job_ids[:50]:
+        job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+        if job:
+            job.kanban_stage = body.stage
+            job.updated_at = datetime.utcnow().isoformat() + "Z"
+            updated += 1
+    db.commit()
+    return {"updated": updated}
+
+
+@router.delete("/jobs/bulk-delete")
+def bulk_delete(
+    body: BulkJobIds,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete multiple jobs."""
+    deleted = 0
+    for job_id in body.job_ids[:50]:
+        job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+        if job:
+            db.delete(job)
+            deleted += 1
+    db.commit()
+    return {"deleted": deleted}
 
 
 def create_job_record(user_id: str, job_data: dict, db: Session = None) -> str:

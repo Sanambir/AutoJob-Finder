@@ -76,6 +76,10 @@ class Job(Base):
     salary_min         = Column(String, nullable=True)
     salary_max         = Column(String, nullable=True)
     job_type           = Column(String, nullable=True)
+    interview_prep     = Column(Text, nullable=True)           # AI-generated interview Q&A
+    deadline           = Column(String, nullable=True)         # ISO date "YYYY-MM-DD" for application deadline
+    is_expired         = Column(Boolean, default=False)        # True when job URL returns 404/closed
+    resume_id          = Column(String, nullable=True)         # ID of the Resume used for tailoring
     created_at         = Column(String, nullable=True)
     updated_at         = Column(String, nullable=True)
 

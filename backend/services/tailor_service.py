@@ -49,6 +49,57 @@ APPLICANT RESUME (first 1500 chars):
 Write the cover letter now:"""
 
 
+INTERVIEW_PREP_PROMPT = """You are an expert interview coach. Given the job description and the applicant's resume, generate a focused interview preparation guide.
+
+Output exactly these sections:
+
+**Likely Interview Questions** (8–10 questions the interviewer will probably ask, mixing behavioural, technical, and role-specific)
+
+**Suggested Answers / Talking Points** (one concise bullet-point answer per question, drawing from the applicant's actual experience on the resume)
+
+**Questions to Ask the Interviewer** (3–5 smart questions that show genuine interest and research)
+
+**Key Themes to Emphasise** (3–4 bullet points: the resume strengths that directly match what this role needs)
+
+Keep language direct and practical. Reference specific details from both the resume and job description.
+
+JOB TITLE: {job_title}
+COMPANY: {company}
+
+JOB DESCRIPTION:
+{job_description}
+
+APPLICANT RESUME (first 2000 chars):
+{resume_snippet}
+
+Write the interview prep guide now:"""
+
+
+async def generate_interview_prep(
+    resume: str,
+    job_description: str,
+    job_title: str,
+    company_name: str,
+) -> str:
+    """Generate an interview preparation guide using Gemini."""
+    if not _client:
+        raise ValueError("GOOGLE_API_KEY not configured")
+
+    cfg = types.GenerateContentConfig(temperature=0.3)
+    r = await gemini_call_with_retry(
+        _client.models.generate_content,
+        model=GEMINI_MODEL,
+        contents=INTERVIEW_PREP_PROMPT.format(
+            job_title=job_title,
+            company=company_name,
+            job_description=job_description[:2500],
+            resume_snippet=resume[:2000],
+        ),
+        config=cfg,
+    )
+    return (r.text or "").strip()
+
+
 async def tailor_documents(
     resume: str,
     job_description: str,

@@ -17,18 +17,24 @@ const FILTERS = [
   { label: 'Error',     value: 'error' },
 ] as const
 
+const KANBAN_STAGES = ['discovered', 'applied', 'interview', 'offer', 'rejected'] as const
+
 export default function FeedPage() {
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(1)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkStage, setBulkStage] = useState('')
   const toast = useToast()
   const qc = useQueryClient()
 
-  // Main jobs query — auto-polls when jobs are in progress
+  const selectionMode = selectedIds.size > 0
+
+  // Main jobs query
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', filter, page],
     queryFn: () => apiFetch<JobsPage>(`/jobs?page=${page}&page_size=${PAGE_SIZE}${filter ? `&status=${filter}` : ''}`),
-    refetchOnMount: 'always',   // always fetch fresh on mount, never show stale feed
+    refetchOnMount: 'always',
     refetchInterval: (query) => {
       const jobs = query.state.data?.jobs ?? []
       return jobs.some(j => IN_PROGRESS.includes(j.status)) ? 3000 : 5_000
@@ -41,23 +47,19 @@ export default function FeedPage() {
     refetchInterval: 15_000,
   })
 
-  // /saved returns Job[] directly — use job.id as the bookmark key
   const { data: savedData = [] } = useQuery({
     queryKey: ['saved'],
     queryFn: () => apiFetch<Job[]>('/saved'),
   })
 
-  const bookmarkedIds = useMemo(
-    () => new Set(savedData.map(j => j.id)),
-    [savedData],
-  )
+  const bookmarkedIds = useMemo(() => new Set(savedData.map(j => j.id)), [savedData])
 
   const jobs = data?.jobs ?? []
   const total = data?.total ?? 0
   const pages = data?.pages ?? 1
   const hasInProgress = jobs.some(j => IN_PROGRESS.includes(j.status))
 
-  // Mutations
+  // ── Mutations ──────────────────────────────────────────────────────────────
   const bulkRetry = useMutation({
     mutationFn: () => apiFetch('/jobs/bulk-retry', { method: 'POST' }),
     onSuccess: () => { toast('All error jobs re-queued!'); qc.invalidateQueries({ queryKey: ['jobs'] }) },
@@ -67,13 +69,65 @@ export default function FeedPage() {
   const bulkDeleteLow = useMutation({
     mutationFn: () => apiFetch('/jobs/bulk-delete-below-threshold', { method: 'POST' }),
     onSuccess: (d: unknown) => {
-      const result = d as { deleted: number }
-      toast(`Deleted ${result.deleted} low-match jobs`)
+      toast(`Deleted ${(d as { deleted: number }).deleted} low-match jobs`)
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
     },
     onError: (e: Error) => toast(e.message, false),
   })
+
+  const bulkTailor = useMutation({
+    mutationFn: () => apiFetch('/jobs/bulk-tailor', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: [...selectedIds] }),
+    }),
+    onSuccess: (d: unknown) => {
+      toast(`Queued ${(d as { queued: number }).queued} jobs for cover letter generation`)
+      setSelectedIds(new Set())
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+    },
+    onError: (e: Error) => toast(e.message, false),
+  })
+
+  const bulkStageUpdate = useMutation({
+    mutationFn: (stage: string) => apiFetch('/jobs/bulk-stage', {
+      method: 'PATCH',
+      body: JSON.stringify({ job_ids: [...selectedIds], stage }),
+    }),
+    onSuccess: (d: unknown) => {
+      toast(`Moved ${(d as { updated: number }).updated} jobs`)
+      setSelectedIds(new Set())
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+    },
+    onError: (e: Error) => toast(e.message, false),
+  })
+
+  const bulkDeleteSelected = useMutation({
+    mutationFn: () => apiFetch('/jobs/bulk-delete', {
+      method: 'DELETE',
+      body: JSON.stringify({ job_ids: [...selectedIds] }),
+    }),
+    onSuccess: (d: unknown) => {
+      toast(`Deleted ${(d as { deleted: number }).deleted} jobs`)
+      setSelectedIds(new Set())
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+    },
+    onError: (e: Error) => toast(e.message, false),
+  })
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function toggleSelect(id: string, checked: boolean) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      checked ? next.add(id) : next.delete(id)
+      return next
+    })
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(jobs.map(j => j.id)))
+  }
 
   async function toggleBookmark(job: Job) {
     const isBookmarked = bookmarkedIds.has(job.id)
@@ -97,18 +151,17 @@ export default function FeedPage() {
         {stats && (
           <div className="flex items-center gap-6 mb-5">
             {[
-              { label: 'Total', value: stats.total_jobs },
-              { label: 'Emailed', value: stats.emailed },
+              { label: 'Total',     value: stats.total_jobs },
+              { label: 'Emailed',   value: stats.emailed },
               { label: 'Avg Score', value: stats.avg_score != null ? `${stats.avg_score}%` : '—' },
               { label: 'This Week', value: stats.recent_7d },
-              { label: 'Errors', value: stats.errors },
+              { label: 'Errors',    value: stats.errors },
             ].map(({ label, value }) => (
               <div key={label} className="text-center">
                 <div className="text-white font-black text-xl">{value}</div>
                 <div className="text-white/30 text-[10px] uppercase tracking-wider">{label}</div>
               </div>
             ))}
-
             {hasInProgress && (
               <div className="ml-auto flex items-center gap-2 text-blue-400 text-xs font-medium">
                 <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
@@ -124,7 +177,7 @@ export default function FeedPage() {
             {FILTERS.map(f => (
               <button
                 key={f.value}
-                onClick={() => { setFilter(f.value); setPage(1) }}
+                onClick={() => { setFilter(f.value); setPage(1); setSelectedIds(new Set()) }}
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all
                   ${filter === f.value
                     ? 'bg-white text-black'
@@ -137,7 +190,7 @@ export default function FeedPage() {
             ))}
           </div>
           <div className="ml-auto flex gap-2">
-            {(stats?.errors ?? 0) > 0 && (
+            {(stats?.errors ?? 0) > 0 && !selectionMode && (
               <button
                 onClick={() => bulkRetry.mutate()}
                 disabled={bulkRetry.isPending}
@@ -146,7 +199,7 @@ export default function FeedPage() {
                 Retry Errors
               </button>
             )}
-            {(stats?.by_status['below_threshold'] ?? 0) > 0 && (
+            {(stats?.by_status['below_threshold'] ?? 0) > 0 && !selectionMode && (
               <button
                 onClick={() => bulkDeleteLow.mutate()}
                 disabled={bulkDeleteLow.isPending}
@@ -155,9 +208,66 @@ export default function FeedPage() {
                 Clear Low Matches
               </button>
             )}
+            {/* Select all / deselect */}
+            {jobs.length > 0 && (
+              <button
+                onClick={selectionMode ? () => setSelectedIds(new Set()) : selectAll}
+                className="px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all"
+              >
+                {selectionMode ? 'Deselect all' : 'Select all'}
+              </button>
+            )}
           </div>
         </div>
       </header>
+
+      {/* Bulk action bar */}
+      {selectionMode && (
+        <div className="flex-shrink-0 px-8 py-3 bg-white/[0.03] border-b border-white/[0.04] flex items-center gap-3 flex-wrap">
+          <span className="text-white/60 text-xs font-semibold">{selectedIds.size} selected</span>
+
+          <button
+            onClick={() => bulkTailor.mutate()}
+            disabled={bulkTailor.isPending}
+            className="px-3 py-1.5 bg-white text-black text-xs font-bold rounded-lg hover:bg-white/90 transition-colors disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined align-middle mr-1" style={{ fontSize: 13 }}>auto_awesome</span>
+            Generate Cover Letters
+          </button>
+
+          <div className="flex items-center gap-1">
+            <select
+              value={bulkStage}
+              onChange={e => setBulkStage(e.target.value)}
+              className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white/60 text-xs focus:outline-none"
+            >
+              <option value="">Move to stage…</option>
+              {KANBAN_STAGES.map(s => <option key={s} value={s} className="bg-[#1a1a1a] capitalize">{s}</option>)}
+            </select>
+            {bulkStage && (
+              <button
+                onClick={() => { bulkStageUpdate.mutate(bulkStage); setBulkStage('') }}
+                disabled={bulkStageUpdate.isPending}
+                className="px-3 py-1.5 bg-white/10 text-white text-xs font-semibold rounded-lg hover:bg-white/20 transition-colors disabled:opacity-50"
+              >
+                Apply
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => { if (confirm(`Delete ${selectedIds.size} jobs? This cannot be undone.`)) bulkDeleteSelected.mutate() }}
+            disabled={bulkDeleteSelected.isPending}
+            className="px-3 py-1.5 bg-red-500/10 text-red-400 text-xs font-bold rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-50 border border-red-500/20"
+          >
+            Delete Selected
+          </button>
+
+          <button onClick={() => setSelectedIds(new Set())} className="ml-auto text-white/30 hover:text-white text-xs transition-colors">
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* Jobs grid */}
       <div className="flex-1 overflow-y-auto p-6">
@@ -182,11 +292,13 @@ export default function FeedPage() {
                   bookmarked={bookmarkedIds.has(job.id)}
                   onClick={() => setSelectedJob(job)}
                   onBookmark={() => toggleBookmark(job)}
+                  selectable={selectionMode}
+                  selected={selectedIds.has(job.id)}
+                  onSelect={toggleSelect}
                 />
               ))}
             </div>
 
-            {/* Pagination */}
             {pages > 1 && (
               <div className="flex items-center justify-center gap-3 mt-8">
                 <button
@@ -210,7 +322,6 @@ export default function FeedPage() {
         )}
       </div>
 
-      {/* Drawer */}
       <JobDrawer
         job={selectedJob}
         onClose={() => setSelectedJob(null)}
