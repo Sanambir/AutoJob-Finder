@@ -47,6 +47,23 @@ def _get_gemini_sem() -> asyncio.Semaphore:
     return _GEMINI_SEM
 
 
+# ── Async wrappers for synchronous DB helpers ─────────────────────────────────
+# update_job / create_job_record / log_activity are synchronous SQLAlchemy
+# functions. Calling them directly from async code blocks the entire asyncio
+# event loop — meaning no other request (sign-in, page load, feed poll) can
+# be served until the DB write completes. asyncio.to_thread() offloads each
+# call to a thread-pool worker so the event loop stays free.
+
+async def _aupdate_job(job_id: str, **kwargs) -> None:
+    await asyncio.to_thread(update_job, job_id, **kwargs)
+
+async def _acreate_job(user_id: str, job_data: dict) -> str:
+    return await asyncio.to_thread(create_job_record, user_id, job_data)
+
+async def _alog_activity(user_id: str, event_type: str, message: str) -> None:
+    await asyncio.to_thread(log_activity, user_id, event_type, message)
+
+
 class SearchRequest(BaseModel):
     resume: str = ""
     recipient_email: str
@@ -73,16 +90,20 @@ def _now() -> str:
 
 async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: str, applicant_name: str, user_id: str):
     """Score → tailor → email for a single job, writing results to DB."""
-    from database import SessionLocal
-    from models import User
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        threshold = user.match_threshold if user else 75
-    finally:
-        db.close()
+    # Fetch user threshold — wrapped in to_thread so it doesn't block the loop.
+    def _get_threshold():
+        from database import SessionLocal
+        from models import User
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            return user.match_threshold if user else 75
+        finally:
+            db.close()
 
-    update_job(job_id, status="scoring")
+    threshold = await asyncio.to_thread(_get_threshold)
+
+    await _aupdate_job(job_id, status="scoring")
     try:
         # Gemini Flash supports 1M token context — send the full resume.
         # Previous 3000-char limit was cutting most resumes mid-way through
@@ -92,18 +113,18 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
         jd_trim = job["description"][:8000]
         sd = await score_resume(resume_trim, jd_trim)
     except Exception as e:
-        update_job(job_id, status="error", error=f"Scoring: {e}")
+        await _aupdate_job(job_id, status="error", error=f"Scoring: {e}")
         logger.warning("Scoring failed for job %s: %s", job_id, e)
         return
 
     score = sd["match_score"]
-    update_job(job_id, match_score=score, reasoning=sd.get("reasoning", ""), missing_skills=sd.get("missing_skills", []))
+    await _aupdate_job(job_id, match_score=score, reasoning=sd.get("reasoning", ""), missing_skills=sd.get("missing_skills", []))
 
     if score < threshold:
-        update_job(job_id, status="below_threshold")
+        await _aupdate_job(job_id, status="below_threshold")
         return
 
-    update_job(job_id, status="tailoring")
+    await _aupdate_job(job_id, status="tailoring")
     try:
         td = await tailor_documents(
             resume=resume, job_description=job["description"],
@@ -111,24 +132,24 @@ async def _pipeline_job(job_id: str, resume: str, job: dict, recipient_email: st
             applicant_name=applicant_name, job_title=job["title"], company_name=job["company"],
         )
     except Exception as e:
-        update_job(job_id, status="error", error=f"Tailoring: {e}")
+        await _aupdate_job(job_id, status="error", error=f"Tailoring: {e}")
         logger.warning("Tailoring failed for job %s: %s", job_id, e)
         return
 
-    update_job(job_id, resume_suggestions=td["resume_suggestions"], cover_letter=td["cover_letter"])
+    await _aupdate_job(job_id, resume_suggestions=td["resume_suggestions"], cover_letter=td["cover_letter"])
 
-    update_job(job_id, status="emailing")
+    await _aupdate_job(job_id, status="emailing")
     try:
         result = await send_match_email(
             recipient_email=recipient_email, applicant_name=applicant_name,
             job_title=job["title"], company_name=job["company"], job_url=job.get("url", ""),
             resume_suggestions=td["resume_suggestions"], cover_letter=td["cover_letter"], match_score=score,
         )
-        update_job(job_id, status="scored" if result.get("status") == "skipped" else "emailed")
+        await _aupdate_job(job_id, status="scored" if result.get("status") == "skipped" else "emailed")
     except Exception as e:
         # Email failure is non-fatal — job is still scored and visible in feed
         logger.warning("Email failed for job %s (still marking scored): %s", job_id, e)
-        update_job(job_id, status="scored", error=f"Email failed: {str(e)[:120]}")
+        await _aupdate_job(job_id, status="scored", error=f"Email failed: {str(e)[:120]}")
 
 
 async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False):
@@ -179,16 +200,19 @@ async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False
         return
 
     logger.info("Scraped %d jobs, starting pipeline…", len(raw_jobs))
-    log_activity(request.user_id, "search", f"Found {len(raw_jobs)} jobs for '{request.keywords or 'resume match'}'")
+    await _alog_activity(request.user_id, "search", f"Found {len(raw_jobs)} jobs for '{request.keywords or 'resume match'}'")
 
     # Deduplicate: skip jobs with same title+company already in DB for this user
-    from models import Job as JobModel
-    db_dedup = SessionLocal()
-    try:
-        existing = db_dedup.query(JobModel.title, JobModel.company).filter(JobModel.user_id == request.user_id).all()
-        seen = {(r.title.lower().strip(), r.company.lower().strip()) for r in existing}
-    finally:
-        db_dedup.close()
+    def _get_existing():
+        from models import Job as JobModel
+        db = SessionLocal()
+        try:
+            existing = db.query(JobModel.title, JobModel.company).filter(JobModel.user_id == request.user_id).all()
+            return {(r.title.lower().strip(), r.company.lower().strip()) for r in existing}
+        finally:
+            db.close()
+
+    seen = await asyncio.to_thread(_get_existing)
 
     unique_jobs = [j for j in raw_jobs if (j["title"].lower().strip(), j["company"].lower().strip()) not in seen]
     if len(unique_jobs) < len(raw_jobs):
@@ -198,10 +222,11 @@ async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False
         logger.info("All scraped jobs already in DB — nothing new to process.")
         return
 
-    # Register all jobs in DB
+    # Register all jobs in DB — awaited so we don't block the event loop on
+    # each INSERT, and yield after each one so pending requests can be served.
     job_ids = []
     for job in raw_jobs:
-        job_id = create_job_record(request.user_id, {
+        job_id = await _acreate_job(request.user_id, {
             "title": job["title"], "company": job["company"], "url": job["url"],
             "resume": request.resume, "job_description": job["description"],
             "recipient_email": request.recipient_email, "applicant_name": request.applicant_name,
@@ -211,6 +236,9 @@ async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False
             "job_type": job.get("job_type", ""),
         })
         job_ids.append((job_id, job))
+        # Yield to the event loop after each DB insert so sign-in / page-load
+        # requests aren't queued behind a burst of sequential INSERTs.
+        await asyncio.sleep(0)
 
     async def process_one(job_id, job):
         try:
@@ -220,26 +248,34 @@ async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False
                 if request.auto_pipeline:
                     await _pipeline_job(job_id, request.resume, job, request.recipient_email, request.applicant_name, request.user_id)
                 else:
-                    update_job(job_id, status="scoring")
+                    await _aupdate_job(job_id, status="scoring")
                     try:
                         resume_trim = request.resume[:15000]
                         jd_trim = job["description"][:8000]
                         sd = await score_resume(resume_trim, jd_trim)
                         score = sd["match_score"]
-                        db = SessionLocal()
-                        user = db.query(User).filter(User.id == request.user_id).first()
-                        threshold = user.match_threshold if user else 75
-                        db.close()
-                        update_job(job_id, match_score=score, reasoning=sd.get("reasoning", ""),
-                                   missing_skills=sd.get("missing_skills", []),
-                                   status="below_threshold" if score < threshold else "scored")
+
+                        def _get_threshold():
+                            db = SessionLocal()
+                            try:
+                                user = db.query(User).filter(User.id == request.user_id).first()
+                                return user.match_threshold if user else 75
+                            finally:
+                                db.close()
+
+                        threshold = await asyncio.to_thread(_get_threshold)
+                        await _aupdate_job(
+                            job_id, match_score=score, reasoning=sd.get("reasoning", ""),
+                            missing_skills=sd.get("missing_skills", []),
+                            status="below_threshold" if score < threshold else "scored",
+                        )
                     except Exception as e:
-                        update_job(job_id, status="error", error=str(e))
+                        await _aupdate_job(job_id, status="error", error=str(e))
         except Exception as e:
             # Catch anything that escaped inner try/excepts so it cannot
             # cancel the remaining jobs in asyncio.gather
             logger.error("Unexpected pipeline error for job %s: %s", job_id, e)
-            update_job(job_id, status="error", error=f"Pipeline error: {str(e)[:200]}")
+            await _aupdate_job(job_id, status="error", error=f"Pipeline error: {str(e)[:200]}")
 
     # return_exceptions=True ensures one failure never cancels the other jobs
     results = await asyncio.gather(
@@ -251,7 +287,7 @@ async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False
         logger.error("%d job(s) hit unhandled exceptions: %s", len(errors), errors)
 
     logger.info("Pipeline complete for user %s — %d jobs processed", request.user_id, len(job_ids))
-    log_activity(request.user_id, "pipeline", f"Pipeline complete — {len(job_ids)} jobs processed")
+    await _alog_activity(request.user_id, "pipeline", f"Pipeline complete — {len(job_ids)} jobs processed")
 
 
 @router.post("/search", response_model=SearchResponse)
