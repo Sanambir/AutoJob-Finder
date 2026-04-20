@@ -4,6 +4,7 @@ import { apiFetch } from '../api/client'
 import { LogoFull } from '../components/Logo'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../components/Toast'
+import { queryClient } from '../queryClient'
 import type { User } from '../types'
 
 interface TokenResponse {
@@ -42,7 +43,10 @@ export default function LoginPage() {
           body: JSON.stringify({ email, password }),
         })
       }
-      // Cookie is now set by the server — fetch the user profile to populate the store
+      // Cookie is now set by the server — fetch the user profile to populate the store.
+      // Clear the query cache before setting new auth state so no previous user's
+      // cached data (jobs, stats, resumes) leaks into this session.
+      queryClient.clear()
       const me = await apiFetch<Omit<User, 'has_resume'>>('/auth/me')
       setAuth({ ...me, has_resume: false, is_verified: me.is_verified ?? false })
       navigate('/feed')
