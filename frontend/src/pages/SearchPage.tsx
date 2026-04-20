@@ -110,7 +110,7 @@ export default function SearchPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#111111] dot-grid">
-      <div className="max-w-2xl mx-auto p-8">
+      <div className="max-w-2xl mx-auto p-4 md:p-8">
         <div className="mb-8">
           <h1 className="text-white font-bold text-2xl tracking-tight">Job Search</h1>
           <p className="text-white/40 text-sm mt-1">Scrape → score → tailor → email, automatically</p>

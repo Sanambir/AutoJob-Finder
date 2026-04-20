@@ -173,8 +173,8 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
 
-      {/* Drawer */}
-      <aside className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#161616] border-l border-white/[0.06] z-50 flex flex-col drawer-enter overflow-hidden">
+      {/* Drawer — bottom sheet on mobile, right panel on desktop */}
+      <aside className="fixed bottom-0 left-0 right-0 max-h-[92vh] md:bottom-auto md:right-0 md:left-auto md:top-0 md:h-full md:w-full md:max-w-lg bg-[#161616] border-t border-white/[0.06] md:border-t-0 md:border-l md:border-white/[0.06] z-50 flex flex-col drawer-enter overflow-hidden rounded-t-2xl md:rounded-none">
         {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-white/[0.04]">
           <div className="min-w-0 flex-1">

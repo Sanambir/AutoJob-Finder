@@ -156,7 +156,7 @@ export default function BoardPage() {
   return (
     <div className="h-full flex flex-col bg-[#111111] dot-grid overflow-hidden">
       {/* Header */}
-      <header className="flex-shrink-0 px-8 py-5 border-b border-white/[0.03] bg-[#111111] flex items-center justify-between">
+      <header className="flex-shrink-0 px-4 py-4 md:px-8 md:py-5 border-b border-white/[0.03] bg-[#111111] flex items-center justify-between">
         <div>
           <h1 className="text-white font-bold text-2xl tracking-tight">Board</h1>
           <p className="text-white/40 text-sm mt-1">{jobs.length} jobs</p>
@@ -171,7 +171,7 @@ export default function BoardPage() {
       </header>
 
       {/* Kanban grid */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden p-6">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 md:p-6">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}

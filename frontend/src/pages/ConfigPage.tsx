@@ -116,22 +116,22 @@ export default function ConfigPage() {
   return (
     <div className="h-full flex flex-col bg-[#111111] dot-grid overflow-hidden">
       {/* Header */}
-      <header className="h-20 flex items-center justify-between px-8 md:px-12 border-b border-white/[0.03] bg-[#111111] flex-shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Configurations</h1>
-          <p className="text-sm font-medium tracking-tight text-white/45">Adjust the match threshold in real-time</p>
+      <header className="flex items-center justify-between px-4 py-4 md:px-12 md:h-20 border-b border-white/[0.03] bg-[#111111] flex-shrink-0 gap-3">
+        <div className="min-w-0">
+          <h1 className="text-lg md:text-2xl font-bold tracking-tight text-white">Configurations</h1>
+          <p className="text-xs md:text-sm font-medium tracking-tight text-white/45 hidden sm:block">Adjust the match threshold in real-time</p>
         </div>
         <button
           onClick={save}
           disabled={saving}
-          className="px-6 py-2.5 bg-white text-black text-sm font-semibold rounded-lg hover:bg-white/90 transition-all disabled:opacity-50"
+          className="px-4 md:px-6 py-2 md:py-2.5 bg-white text-black text-xs md:text-sm font-semibold rounded-lg hover:bg-white/90 transition-all disabled:opacity-50 flex-shrink-0"
         >
-          {saving ? 'Saving…' : 'Save Settings'}
+          {saving ? 'Saving…' : 'Save'}
         </button>
       </header>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-8 md:p-12 flex flex-col gap-8 w-full">
+        <div className="max-w-5xl mx-auto p-4 md:p-12 flex flex-col gap-6 md:gap-8 w-full">
 
           {/* Match Threshold */}
           <section className="bg-[#1a1a1a] border border-white/[0.08] rounded-xl p-8 flex flex-col md:flex-row items-center justify-between gap-8">

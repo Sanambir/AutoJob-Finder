@@ -146,10 +146,10 @@ export default function FeedPage() {
   return (
     <div className="h-full flex flex-col bg-[#111111] dot-grid overflow-hidden">
       {/* Header */}
-      <header className="flex-shrink-0 px-8 py-5 border-b border-white/[0.03] bg-[#111111]">
-        {/* Stats row */}
+      <header className="flex-shrink-0 px-4 py-4 md:px-8 md:py-5 border-b border-white/[0.03] bg-[#111111]">
+        {/* Stats row — horizontal scroll on mobile */}
         {stats && (
-          <div className="flex items-center gap-6 mb-5">
+          <div className="flex items-center gap-4 md:gap-6 mb-4 md:mb-5 overflow-x-auto pb-1 scrollbar-none">
             {[
               { label: 'Total',     value: stats.total_jobs },
               { label: 'Emailed',   value: stats.emailed },
@@ -157,28 +157,28 @@ export default function FeedPage() {
               { label: 'This Week', value: stats.recent_7d },
               { label: 'Errors',    value: stats.errors },
             ].map(({ label, value }) => (
-              <div key={label} className="text-center">
-                <div className="text-white font-black text-xl">{value}</div>
-                <div className="text-white/30 text-[10px] uppercase tracking-wider">{label}</div>
+              <div key={label} className="text-center flex-shrink-0">
+                <div className="text-white font-black text-lg md:text-xl">{value}</div>
+                <div className="text-white/30 text-[9px] md:text-[10px] uppercase tracking-wider">{label}</div>
               </div>
             ))}
             {hasInProgress && (
-              <div className="ml-auto flex items-center gap-2 text-blue-400 text-xs font-medium">
+              <div className="ml-auto flex items-center gap-2 text-blue-400 text-xs font-medium flex-shrink-0">
                 <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                Pipeline running…
+                <span className="hidden sm:inline">Pipeline running…</span>
               </div>
             )}
           </div>
         )}
 
         {/* Filter + actions row */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex gap-2 flex-wrap">
+        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+          <div className="flex gap-1.5 md:gap-2 overflow-x-auto pb-0.5 scrollbar-none flex-nowrap">
             {FILTERS.map(f => (
               <button
                 key={f.value}
                 onClick={() => { setFilter(f.value); setPage(1); setSelectedIds(new Set()) }}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all
+                className={`px-2.5 md:px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex-shrink-0
                   ${filter === f.value
                     ? 'bg-white text-black'
                     : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
@@ -189,32 +189,32 @@ export default function FeedPage() {
               </button>
             ))}
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex gap-1.5 md:gap-2 flex-shrink-0">
             {(stats?.errors ?? 0) > 0 && !selectionMode && (
               <button
                 onClick={() => bulkRetry.mutate()}
                 disabled={bulkRetry.isPending}
-                className="px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all"
+                className="px-2.5 md:px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all"
               >
-                Retry Errors
+                Retry
               </button>
             )}
             {(stats?.by_status['below_threshold'] ?? 0) > 0 && !selectionMode && (
               <button
                 onClick={() => bulkDeleteLow.mutate()}
                 disabled={bulkDeleteLow.isPending}
-                className="px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all"
+                className="hidden sm:block px-2.5 md:px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all"
               >
-                Clear Low Matches
+                Clear Low
               </button>
             )}
             {/* Select all / deselect */}
             {jobs.length > 0 && (
               <button
                 onClick={selectionMode ? () => setSelectedIds(new Set()) : selectAll}
-                className="px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all"
+                className="px-2.5 md:px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all whitespace-nowrap"
               >
-                {selectionMode ? 'Deselect all' : 'Select all'}
+                {selectionMode ? 'Deselect' : 'Select all'}
               </button>
             )}
           </div>
@@ -223,7 +223,7 @@ export default function FeedPage() {
 
       {/* Bulk action bar */}
       {selectionMode && (
-        <div className="flex-shrink-0 px-8 py-3 bg-white/[0.03] border-b border-white/[0.04] flex items-center gap-3 flex-wrap">
+        <div className="flex-shrink-0 px-4 md:px-8 py-3 bg-white/[0.03] border-b border-white/[0.04] flex items-center gap-2 md:gap-3 flex-wrap">
           <span className="text-white/60 text-xs font-semibold">{selectedIds.size} selected</span>
 
           <button
@@ -270,7 +270,7 @@ export default function FeedPage() {
       )}
 
       {/* Jobs grid */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-3 md:p-6">
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
             <div className="text-white/30 text-sm">Loading…</div>
@@ -284,7 +284,7 @@ export default function FeedPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4">
               {jobs.map(job => (
                 <JobCard
                   key={job.id}

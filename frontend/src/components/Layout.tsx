@@ -48,7 +48,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen overflow-hidden bg-[#111111]">
       <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
         {showBanner && (
           <div className="flex items-center gap-3 px-5 py-2.5 bg-amber-950/60 border-b border-amber-700/30 text-amber-300 text-xs flex-shrink-0">
             <span className="material-symbols-outlined text-base">mail</span>
