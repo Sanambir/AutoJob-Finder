@@ -72,10 +72,10 @@ export default function AdminSystem() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#111111]">
-      <div className="max-w-4xl mx-auto p-8 flex flex-col gap-6">
+      <div className="max-w-4xl mx-auto p-4 md:p-8 flex flex-col gap-4 md:gap-6">
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight">System</h1>
             <p className="text-sm text-white/40 mt-0.5">Service health &amp; configuration</p>

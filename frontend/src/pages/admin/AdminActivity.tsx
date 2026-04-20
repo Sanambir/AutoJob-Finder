@@ -70,39 +70,39 @@ export default function AdminActivity() {
   return (
     <div className="h-full flex flex-col bg-[#111111]">
       {/* Header */}
-      <header className="px-8 py-5 border-b border-white/[0.04] flex-shrink-0">
-        <div className="flex items-center justify-between mb-4">
-          <div>
+      <header className="px-4 md:px-8 py-4 md:py-5 border-b border-white/[0.04] flex-shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-white">Activity Feed</h1>
             <p className="text-xs text-white/40 mt-0.5">{data?.total ?? '…'} total events across all users</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-3 py-2 w-56">
+          <div className="flex items-center gap-2 sm:ml-auto">
+            <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-3 py-2 flex-1 sm:w-56 sm:flex-none">
               <span className="material-symbols-outlined text-white/30" style={{ fontSize: 16 }}>search</span>
               <input
                 value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1) }}
                 placeholder="Search message or user…"
-                className="bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none flex-1"
+                className="bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none flex-1 min-w-0"
               />
             </div>
             <button
               onClick={clearAll}
-              className="flex items-center gap-1.5 px-3 py-2 bg-red-950/20 hover:bg-red-950/40 border border-red-900/30 rounded-xl text-xs text-red-400/70 hover:text-red-400 transition-all"
+              className="flex items-center gap-1.5 px-3 py-2 bg-red-950/20 hover:bg-red-950/40 border border-red-900/30 rounded-xl text-xs text-red-400/70 hover:text-red-400 transition-all flex-shrink-0"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete_sweep</span>
-              Clear all
+              <span className="hidden sm:inline">Clear all</span>
             </button>
           </div>
         </div>
 
-        {/* Event type pills */}
-        <div className="flex flex-wrap gap-2">
+        {/* Event type pills — scrollable on mobile */}
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
           {EVENT_TYPES.map(t => (
             <button
               key={t}
               onClick={() => { setEventFilter(t); setPage(1) }}
-              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all capitalize
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all capitalize whitespace-nowrap flex-shrink-0
                 ${eventFilter === t ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:text-white hover:bg-white/10'}`}
             >
               {t}
@@ -125,7 +125,7 @@ export default function AdminActivity() {
         ) : (
           <div className="divide-y divide-white/[0.03]">
             {(data?.logs ?? []).map(log => (
-              <div key={log.id} className="flex items-start gap-4 px-8 py-3.5 hover:bg-white/[0.015] transition-colors">
+              <div key={log.id} className="flex items-start gap-3 px-4 md:px-8 py-3 md:py-3.5 hover:bg-white/[0.015] transition-colors">
                 {/* Event type badge */}
                 <span className={`mt-0.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase flex-shrink-0 w-24 text-center ${eventStyle(log.event_type)}`}>
                   {log.event_type.replace('_', ' ')}

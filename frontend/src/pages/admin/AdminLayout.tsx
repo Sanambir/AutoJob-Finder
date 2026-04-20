@@ -3,17 +3,17 @@ import { LogoMark } from '../../components/Logo'
 import { useAuthStore } from '../../store/auth'
 
 const NAV = [
-  { to: '/admin',          icon: 'dashboard',            label: 'Dashboard', end: true },
-  { to: '/admin/users',    icon: 'group',                label: 'Users' },
-  { to: '/admin/jobs',     icon: 'work',                 label: 'Jobs' },
-  { to: '/admin/system',   icon: 'monitor_heart',        label: 'System' },
-  { to: '/admin/activity', icon: 'history',              label: 'Activity' },
+  { to: '/admin',          icon: 'dashboard',     label: 'Dashboard', end: true },
+  { to: '/admin/users',    icon: 'group',          label: 'Users' },
+  { to: '/admin/jobs',     icon: 'work',           label: 'Jobs' },
+  { to: '/admin/system',   icon: 'monitor_heart',  label: 'System' },
+  { to: '/admin/activity', icon: 'history',        label: 'Activity' },
 ]
 
 export default function AdminLayout() {
-  const navigate  = useNavigate()
-  const logout    = useAuthStore(s => s.logout)
-  const user      = useAuthStore(s => s.user)
+  const navigate = useNavigate()
+  const logout   = useAuthStore(s => s.logout)
+  const user     = useAuthStore(s => s.user)
 
   async function handleLogout() {
     await logout()
@@ -22,8 +22,8 @@ export default function AdminLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0a0a]">
-      {/* Admin sidebar */}
-      <aside className="w-56 bg-[#0e0e0e] border-r border-white/[0.06] flex flex-col flex-shrink-0">
+      {/* ── Desktop sidebar (md+) ── */}
+      <aside className="hidden md:flex w-56 bg-[#0e0e0e] border-r border-white/[0.06] flex-col flex-shrink-0">
         {/* Header */}
         <div className="px-5 py-5 border-b border-white/[0.04]">
           <div className="flex items-center gap-3 mb-1">
@@ -44,10 +44,7 @@ export default function AdminLayout() {
               end={end}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
-                 ${isActive
-                   ? 'bg-white/10 text-white'
-                   : 'text-white/40 hover:text-white hover:bg-white/5'
-                 }`
+                 ${isActive ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`
               }
             >
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>
@@ -79,9 +76,45 @@ export default function AdminLayout() {
       </aside>
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden pb-16 md:pb-0">
         <Outlet />
       </div>
+
+      {/* ── Mobile bottom tab bar (< md) ── */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#0e0e0e] border-t border-white/5 flex items-center justify-around px-1 py-1 safe-area-pb">
+        {NAV.map(({ to, icon, label, end }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-xl transition-all min-w-0 flex-1
+               ${isActive ? 'text-white' : 'text-zinc-600'}`
+            }
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>{icon}</span>
+            <span className="text-[9px] font-semibold truncate">{label}</span>
+          </NavLink>
+        ))}
+
+        {/* Back to app */}
+        <NavLink
+          to="/feed"
+          className="flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-xl text-zinc-600 min-w-0 flex-1"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
+          <span className="text-[9px] font-semibold">App</span>
+        </NavLink>
+
+        {/* Sign out */}
+        <button
+          onClick={handleLogout}
+          className="flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-xl text-zinc-600 min-w-0 flex-1"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>logout</span>
+          <span className="text-[9px] font-semibold">Logout</span>
+        </button>
+      </nav>
     </div>
   )
 }

@@ -46,12 +46,12 @@ export default function AdminUsers() {
   return (
     <div className="h-full flex flex-col bg-[#111111]">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-5 border-b border-white/[0.04] flex-shrink-0">
-        <div>
+      <header className="px-4 md:px-8 py-4 md:py-5 border-b border-white/[0.04] flex-shrink-0 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-white">Users</h1>
           <p className="text-xs text-white/40 mt-0.5">{data?.total ?? '…'} total accounts</p>
         </div>
-        <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-3 py-2 w-64">
+        <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-3 py-2 sm:w-64 sm:ml-auto">
           <span className="material-symbols-outlined text-white/30" style={{ fontSize: 16 }}>search</span>
           <input
             value={search}
@@ -63,13 +63,13 @@ export default function AdminUsers() {
       </header>
 
       {/* Table */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-auto">
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
             <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="border-b border-white/[0.04] text-white/30 text-[10px] uppercase tracking-widest">
                 <th className="text-left px-6 py-3 font-semibold">User</th>

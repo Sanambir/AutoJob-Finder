@@ -75,43 +75,43 @@ export default function AdminJobs() {
   return (
     <div className="h-full flex flex-col bg-[#111111]">
       {/* Header */}
-      <header className="px-8 py-5 border-b border-white/[0.04] flex-shrink-0">
-        <div className="flex items-center justify-between mb-4">
-          <div>
+      <header className="px-4 md:px-8 py-4 md:py-5 border-b border-white/[0.04] flex-shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-white">Jobs Monitor</h1>
             <p className="text-xs text-white/40 mt-0.5">{data?.total ?? '…'} total jobs across all users</p>
           </div>
-          <div className="flex items-center gap-3">
-          <button
-            onClick={rescoreAll}
-            disabled={rescoring}
-            title="Re-run scoring on all completed/errored jobs using the current resume"
-            className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/[0.08] rounded-xl text-xs text-white/50 hover:text-white disabled:opacity-40 transition-all"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-              {rescoring ? 'hourglass_empty' : 'replay'}
-            </span>
-            {rescoring ? 'Re-scoring…' : 'Re-score all'}
-          </button>
-          <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-3 py-2 w-56">
-            <span className="material-symbols-outlined text-white/30" style={{ fontSize: 16 }}>search</span>
-            <input
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
-              placeholder="Search title or company…"
-              className="bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none flex-1"
-            />
-          </div>
+          <div className="flex items-center gap-2 sm:ml-auto flex-wrap">
+            <button
+              onClick={rescoreAll}
+              disabled={rescoring}
+              title="Re-run scoring on all completed/errored jobs using the current resume"
+              className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/[0.08] rounded-xl text-xs text-white/50 hover:text-white disabled:opacity-40 transition-all"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                {rescoring ? 'hourglass_empty' : 'replay'}
+              </span>
+              <span className="hidden sm:inline">{rescoring ? 'Re-scoring…' : 'Re-score all'}</span>
+            </button>
+            <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-3 py-2 flex-1 sm:w-56 sm:flex-none">
+              <span className="material-symbols-outlined text-white/30" style={{ fontSize: 16 }}>search</span>
+              <input
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1) }}
+                placeholder="Search title or company…"
+                className="bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none flex-1 min-w-0"
+              />
+            </div>
           </div>
         </div>
 
-        {/* Status filter pills */}
-        <div className="flex flex-wrap gap-2">
+        {/* Status filter pills — scrollable on mobile */}
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
           {STATUS_FILTERS.map(s => (
             <button
               key={s}
               onClick={() => { setStatusFilter(s); setPage(1) }}
-              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all capitalize
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all capitalize whitespace-nowrap flex-shrink-0
                 ${statusFilter === s ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:text-white hover:bg-white/10'}`}
             >
               {s.replace('_', ' ')}
@@ -121,13 +121,13 @@ export default function AdminJobs() {
       </header>
 
       {/* Table */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-auto">
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
             <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="border-b border-white/[0.04] text-white/30 text-[10px] uppercase tracking-widest">
                 <th className="text-left px-6 py-3 font-semibold">Job</th>
