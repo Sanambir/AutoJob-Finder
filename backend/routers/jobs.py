@@ -364,6 +364,84 @@ def update_job(job_id: str, db: Session = None, **kwargs):
             db.close()
 
 
+# ── Cover letter / tailoring on-demand ───────────────────────────────────────
+
+async def _tailor_job_background(job_id: str, user_id: str):
+    """Run just the tailoring step (resume suggestions + cover letter) for any existing job."""
+    import asyncio
+    from services.tailor_service import tailor_documents
+    from routers.activity import log_activity
+    import logging
+    _log = logging.getLogger(__name__)
+
+    def _load_job():
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if not job:
+                return None
+            return {
+                "resume": job.resume or "",
+                "job_description": job.job_description or "",
+                "title": job.title or "",
+                "company": job.company or "",
+                "applicant_name": job.applicant_name or "Applicant",
+                "missing_skills": job.missing_skills or [],
+            }
+        finally:
+            db.close()
+
+    data = await asyncio.to_thread(_load_job)
+    if not data:
+        return
+
+    try:
+        td = await tailor_documents(
+            resume=data["resume"],
+            job_description=data["job_description"],
+            missing_skills=data["missing_skills"],
+            applicant_name=data["applicant_name"],
+            job_title=data["title"],
+            company_name=data["company"],
+        )
+        await asyncio.to_thread(
+            update_job, job_id,
+            resume_suggestions=td["resume_suggestions"],
+            cover_letter=td["cover_letter"],
+        )
+        await asyncio.to_thread(
+            log_activity, user_id, "tailored",
+            f"Cover letter generated for {data['title']} at {data['company']}", job_id,
+        )
+        _log.info("Cover letter generated for job %s", job_id)
+    except Exception as e:
+        _log.warning("Tailoring failed for job %s: %s", job_id, e)
+        await asyncio.to_thread(
+            update_job, job_id, error=f"Cover letter generation failed: {str(e)[:120]}"
+        )
+
+
+@router.post("/jobs/{job_id}/tailor")
+async def generate_cover_letter(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate (or regenerate) resume suggestions and a cover letter for any job."""
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.resume:
+        raise HTTPException(status_code=400, detail="No resume attached — run a search with an active resume first.")
+    if not job.job_description:
+        raise HTTPException(status_code=400, detail="No job description available for this job.")
+
+    background_tasks.add_task(_tailor_job_background, job_id, current_user.id)
+    return {"status": "tailoring", "message": "Generating cover letter and resume suggestions…"}
+
+
 def create_job_record(user_id: str, job_data: dict, db: Session = None) -> str:
     """Create a job row in the DB. Returns the new job_id."""
     from database import SessionLocal

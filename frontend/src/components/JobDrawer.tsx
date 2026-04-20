@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import type { Job } from '../types'
 import StatusBadge from './StatusBadge'
 import { apiFetch } from '../api/client'
@@ -14,16 +14,47 @@ interface Props {
 const KANBAN_STAGES = ['discovered', 'applied', 'interview', 'offer', 'rejected'] as const
 
 export default function JobDrawer({ job, onClose, onStageChange }: Props) {
-  const [notes, setNotes] = useState('')
-  const [savingNotes, setSavingNotes] = useState(false)
-  const [descOpen, setDescOpen] = useState(false)
+  const [notes, setNotes]               = useState('')
+  const [savingNotes, setSavingNotes]   = useState(false)
+  const [descOpen, setDescOpen]         = useState(false)
+  const [generating, setGenerating]     = useState(false)
+  // Local copies so the drawer updates immediately when tailoring completes
+  // without the user needing to close and reopen.
+  const [coverLetter, setCoverLetter]           = useState<string | null>(null)
+  const [resumeSuggestions, setResumeSuggestions] = useState<string | null>(null)
   const toast = useToast()
   const qc = useQueryClient()
 
+  // Reset local state whenever a different job is opened
   useEffect(() => {
     setNotes(job?.notes ?? '')
     setDescOpen(false)
+    setGenerating(false)
+    setCoverLetter(job?.cover_letter ?? null)
+    setResumeSuggestions(job?.resume_suggestions ?? null)
   }, [job?.id])
+
+  // While generating, poll the individual job every 2s until cover_letter appears.
+  const { data: freshJob } = useQuery({
+    queryKey: ['job-detail', job?.id],
+    queryFn:  () => apiFetch<Job>(`/jobs/${job!.id}`),
+    enabled:  generating && !!job?.id,
+    refetchInterval: 2000,
+  })
+
+  useEffect(() => {
+    if (!generating || !freshJob) return
+    if (freshJob.cover_letter) {
+      setCoverLetter(freshJob.cover_letter)
+      setResumeSuggestions(freshJob.resume_suggestions)
+      setGenerating(false)
+      // Sync the global feed/board caches so the cards update too
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['jobs-board'] })
+      qc.invalidateQueries({ queryKey: ['saved-full'] })
+      toast('Cover letter generated!')
+    }
+  }, [freshJob?.cover_letter, generating]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveNotes() {
     if (!job) return
@@ -61,6 +92,19 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
       onClose()
     } catch (e) {
       toast((e as Error).message, false)
+    }
+  }
+
+  async function generateCoverLetter() {
+    if (!job) return
+    setGenerating(true)
+    try {
+      await apiFetch(`/jobs/${job.id}/tailor`, { method: 'POST' })
+      // generating=true starts the polling query above; it will fire every 2s
+      // and call setCoverLetter when the backend finishes.
+    } catch (e) {
+      toast((e as Error).message, false)
+      setGenerating(false)
     }
   }
 
@@ -181,31 +225,67 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
           </div>
 
           {/* Resume suggestions */}
-          {job.resume_suggestions && (
+          {resumeSuggestions && (
             <div className="bg-[#1a1a1a] rounded-xl p-5 border border-white/[0.06]">
               <p className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-3">Resume Suggestions</p>
-              <p className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap">{job.resume_suggestions}</p>
+              <p className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap">{resumeSuggestions}</p>
             </div>
           )}
 
           {/* Cover letter */}
-          {job.cover_letter && (
-            <div className="bg-[#1a1a1a] rounded-xl p-5 border border-white/[0.06]">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-white/60 text-xs font-semibold uppercase tracking-wider">Cover Letter</p>
-                <a
-                  href={`/api/jobs/${job.id}/cover-letter.pdf`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-white/60 hover:text-white flex items-center gap-1 transition-colors"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
-                  PDF
-                </a>
+          <div className="bg-[#1a1a1a] rounded-xl p-5 border border-white/[0.06]">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-wider">Cover Letter</p>
+              <div className="flex items-center gap-2">
+                {coverLetter && (
+                  <>
+                    <a
+                      href={`/api/jobs/${job.id}/cover-letter.pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-white/60 hover:text-white flex items-center gap-1 transition-colors"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
+                      PDF
+                    </a>
+                    <button
+                      onClick={generateCoverLetter}
+                      disabled={generating}
+                      title="Regenerate cover letter"
+                      className="text-white/30 hover:text-white/60 transition-colors disabled:opacity-40"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>refresh</span>
+                    </button>
+                  </>
+                )}
               </div>
-              <p className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap line-clamp-6">{job.cover_letter}</p>
             </div>
-          )}
+
+            {coverLetter ? (
+              <p className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap line-clamp-6">{coverLetter}</p>
+            ) : generating ? (
+              <div className="flex items-center gap-3 py-4">
+                <span className="w-4 h-4 border-2 border-white/20 border-t-white/70 rounded-full animate-spin flex-shrink-0" />
+                <span className="text-white/40 text-sm">Generating cover letter… this takes 15–30 seconds</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-white/30 text-sm">No cover letter yet.</p>
+                <button
+                  onClick={generateCoverLetter}
+                  className="flex items-center gap-2 px-4 py-2 bg-white text-black text-xs font-bold rounded-lg hover:bg-white/90 transition-colors"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>auto_awesome</span>
+                  Generate Cover Letter
+                </button>
+                {job.status === 'below_threshold' && (
+                  <p className="text-white/25 text-[11px]">
+                    This job scored below your threshold but you can still generate a cover letter.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Job description (collapsible) */}
           {job.job_description && (
