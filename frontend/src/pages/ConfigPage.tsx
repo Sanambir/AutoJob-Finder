@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useToast } from '../components/Toast'
@@ -26,7 +27,8 @@ export default function ConfigPage() {
   const [apiOk, setApiOk]                 = useState<boolean | null>(null)
   const [savedAt, setSavedAt]             = useState<string | null>(null)
   const [saving, setSaving]               = useState(false)
-  const toast = useToast()
+  const toast    = useToast()
+  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const { data: config } = useQuery({
@@ -362,8 +364,8 @@ export default function ConfigPage() {
               <span>{savedAt ? `Saved at ${savedAt}` : 'Not saved yet'}</span>
             </div>
             <div className="flex items-center gap-4">
-              <a href="/api/docs" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Documentation</a>
-              <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
+              <button onClick={() => navigate('/docs')} className="hover:text-white transition-colors">Documentation</button>
+              <button onClick={() => navigate('/privacy')} className="hover:text-white transition-colors">Privacy Policy</button>
               <span>v3.0.0</span>
             </div>
           </div>
