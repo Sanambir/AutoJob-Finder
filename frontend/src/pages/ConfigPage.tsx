@@ -366,6 +366,7 @@ export default function ConfigPage() {
             <div className="flex items-center gap-4">
               <button onClick={() => navigate('/docs')} className="hover:text-white transition-colors">Documentation</button>
               <button onClick={() => navigate('/privacy')} className="hover:text-white transition-colors">Privacy Policy</button>
+              <button onClick={() => navigate('/changelog')} className="hover:text-white transition-colors">Changelog</button>
               <span>v3.0.0</span>
             </div>
           </div>

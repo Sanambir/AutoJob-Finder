@@ -261,6 +261,7 @@ export default function LoginPage() {
           <span className="text-white/10">·</span>
           <button onClick={() => navigate('/privacy')} className="text-white/25 text-xs hover:text-white/50 transition-colors">Privacy</button>
           <button onClick={() => navigate('/support')} className="text-white/25 text-xs hover:text-white/50 transition-colors">Support</button>
+          <button onClick={() => navigate('/changelog')} className="text-white/25 text-xs hover:text-white/50 transition-colors">Changelog</button>
         </div>
       </div>
     </div>

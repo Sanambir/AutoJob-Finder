@@ -24,6 +24,7 @@ import AdminActivity from './pages/admin/AdminActivity'
 import PrivacyPage from './pages/PrivacyPage'
 import SupportPage from './pages/SupportPage'
 import DocsPage from './pages/DocsPage'
+import ChangelogPage from './pages/ChangelogPage'
 
 /**
  * AuthGuard — runs on every page load (full reload triggered by login/logout).
@@ -100,9 +101,10 @@ export default function App() {
         <Routes>
           <Route path="/login"   element={<LoginPage />} />
           <Route path="/verify"  element={<VerifyPage />} />
-          <Route path="/privacy" element={<PrivacyPage />} />
-          <Route path="/support" element={<SupportPage />} />
-          <Route path="/docs"    element={<DocsPage />} />
+          <Route path="/privacy"   element={<PrivacyPage />} />
+          <Route path="/support"   element={<SupportPage />} />
+          <Route path="/docs"      element={<DocsPage />} />
+          <Route path="/changelog" element={<ChangelogPage />} />
 
           {/* Admin panel */}
           <Route
