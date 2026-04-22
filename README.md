@@ -3,6 +3,7 @@
 AI-powered job discovery platform that automates the entire application pipeline: **search → score → tailor resume → generate cover letter → email**.
 
 Built with FastAPI, React, and Google Gemini AI.
+
 Live at : https://workfinderx.sanambir.com/search
 
 ---
