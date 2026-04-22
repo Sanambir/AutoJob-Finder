@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import type { Job, JobsPage, Stats } from '../types'
 import JobCard from '../components/JobCard'
@@ -20,6 +21,7 @@ const FILTERS = [
 const KANBAN_STAGES = ['discovered', 'applied', 'interview', 'offer', 'rejected'] as const
 
 export default function FeedPage() {
+  const navigate = useNavigate()
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(1)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
@@ -275,12 +277,81 @@ export default function FeedPage() {
           <div className="flex items-center justify-center h-40">
             <div className="text-white/30 text-sm">Loading…</div>
           </div>
-        ) : jobs.length === 0 ? (
+        ) : jobs.length === 0 && filter ? (
           <div className="flex flex-col items-center justify-center h-40 gap-3">
-            <span className="material-symbols-outlined text-white/20 text-5xl">work_off</span>
-            <p className="text-white/30 text-sm">
-              {filter ? 'No jobs with this filter' : 'No jobs yet — run a search to get started'}
-            </p>
+            <span className="material-symbols-outlined text-white/20 text-5xl">filter_list_off</span>
+            <p className="text-white/30 text-sm">No jobs with this filter</p>
+          </div>
+        ) : jobs.length === 0 ? (
+          /* ── Onboarding empty state ── */
+          <div className="max-w-2xl mx-auto py-8 px-2">
+            <div className="text-center mb-8">
+              <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/[0.08] flex items-center justify-center mx-auto mb-4">
+                <span className="material-symbols-outlined text-white/40" style={{ fontSize: 28 }}>rocket_launch</span>
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">Welcome to WorkfinderX</h2>
+              <p className="text-white/40 text-sm max-w-sm mx-auto">
+                Three steps to your first AI-scored job matches. Takes about 5 minutes.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {/* Step 1 */}
+              <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-xl p-5 flex items-start gap-4">
+                <div className="w-8 h-8 rounded-full bg-white text-black text-sm font-black flex items-center justify-center flex-shrink-0">1</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-semibold text-sm mb-0.5">Upload your resume</p>
+                  <p className="text-white/40 text-xs">PDF, DOCX, or TXT — Gemini AI will read it to score job matches against your actual experience.</p>
+                </div>
+                <button
+                  onClick={() => navigate('/search')}
+                  className="flex-shrink-0 px-3 py-1.5 bg-white text-black text-xs font-bold rounded-lg hover:bg-white/90 transition-all"
+                >
+                  Upload
+                </button>
+              </div>
+
+              {/* Step 2 */}
+              <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-xl p-5 flex items-start gap-4">
+                <div className="w-8 h-8 rounded-full bg-white/10 text-white/40 text-sm font-black flex items-center justify-center flex-shrink-0">2</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-semibold text-sm mb-0.5">Run your first search</p>
+                  <p className="text-white/40 text-xs">Enter keywords like "Senior React Developer" and pick your platforms. WorkfinderX scrapes LinkedIn, Indeed, and more simultaneously.</p>
+                </div>
+                <button
+                  onClick={() => navigate('/search')}
+                  className="flex-shrink-0 px-3 py-1.5 bg-white/5 border border-white/10 text-white/60 text-xs font-bold rounded-lg hover:bg-white/10 hover:text-white transition-all"
+                >
+                  Search
+                </button>
+              </div>
+
+              {/* Step 3 */}
+              <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-xl p-5 flex items-start gap-4 opacity-50">
+                <div className="w-8 h-8 rounded-full bg-white/10 text-white/40 text-sm font-black flex items-center justify-center flex-shrink-0">3</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-semibold text-sm mb-0.5">Review your matches</p>
+                  <p className="text-white/40 text-xs">Jobs appear here as they're scored. Each card shows a match %, missing skills, and a tailored cover letter for high matches.</p>
+                </div>
+                <div className="flex-shrink-0 px-3 py-1.5 text-white/20 text-xs font-bold">
+                  Waiting…
+                </div>
+              </div>
+            </div>
+
+            {/* Tips row */}
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { icon: 'psychology', text: 'AI scores every job 0–100% against your resume' },
+                { icon: 'description', text: 'Cover letters and resume tips generated for top matches' },
+                { icon: 'mail', text: 'Optionally emails applications to you automatically' },
+              ].map(({ icon, text }) => (
+                <div key={icon} className="flex items-start gap-3 p-3 bg-white/[0.02] rounded-xl border border-white/[0.04]">
+                  <span className="material-symbols-outlined text-white/25 flex-shrink-0" style={{ fontSize: 18 }}>{icon}</span>
+                  <p className="text-white/35 text-xs leading-relaxed">{text}</p>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <>

@@ -1,4 +1,5 @@
 import { useState, FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { LogoFull } from '../components/Logo'
 import { useAuthStore } from '../store/auth'
@@ -22,7 +23,8 @@ export default function LoginPage() {
   const [newPassword, setNew]   = useState('')
   const [loading, setLoading]   = useState(false)
 
-  const setAuth = useAuthStore(s => s.setAuth)
+  const navigate = useNavigate()
+  const setAuth  = useAuthStore(s => s.setAuth)
   const toast    = useToast()
 
   async function handleAuth(e: FormEvent) {
@@ -254,7 +256,12 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-white/20 text-xs mt-6">WorkfinderX v3.0.0</p>
+        <div className="flex items-center justify-center gap-4 mt-6">
+          <span className="text-white/20 text-xs">WorkfinderX v3.0.0 · Beta</span>
+          <span className="text-white/10">·</span>
+          <button onClick={() => navigate('/privacy')} className="text-white/25 text-xs hover:text-white/50 transition-colors">Privacy</button>
+          <button onClick={() => navigate('/support')} className="text-white/25 text-xs hover:text-white/50 transition-colors">Support</button>
+        </div>
       </div>
     </div>
   )

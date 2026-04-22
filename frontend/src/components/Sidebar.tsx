@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../store/auth'
@@ -17,6 +17,7 @@ const NAV = [
 
 export default function Sidebar() {
   const user = useAuthStore(s => s.user)
+  const navigate = useNavigate()
   const [notifOpen, setNotifOpen] = useState(false)
 
   const { data: notifs = [], refetch: refetchNotifs } = useQuery({
@@ -104,6 +105,15 @@ export default function Sidebar() {
               </div>
             )}
           </div>
+
+          {/* Help / Support */}
+          <button
+            onClick={() => navigate('/support')}
+            title="Support & FAQ"
+            className="w-10 h-10 flex items-center justify-center text-zinc-600 hover:text-white hover:bg-white/5 transition-colors rounded-xl"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>help</span>
+          </button>
 
           {/* Admin link (admins only) */}
           {user?.is_admin && (
