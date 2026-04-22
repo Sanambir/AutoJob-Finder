@@ -4,7 +4,7 @@ AI-powered job discovery platform that automates the entire application pipeline
 
 Built with FastAPI, React, and Google Gemini AI.
 
-Live at : https://workfinderx.sanambir.com/search
+Live at : https://workfinderx.sanambir.com
 
 ---
 
