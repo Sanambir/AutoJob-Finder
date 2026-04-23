@@ -110,38 +110,57 @@ export default function FeedPage() {
 
   const deleteJob = useMutation({
     mutationFn: (jobId: string) => apiFetch(`/jobs/${jobId}`, { method: 'DELETE' }),
-    onSuccess: (_data, jobId) => {
-      toast('Job deleted')
-      // Remove immediately from every cached jobs page — don't wait for refetch
+    onMutate: async (jobId) => {
+      // Cancel any in-flight refetches — a polling tick that started just before
+      // this mutation could complete after setQueriesData and overwrite the cache,
+      // making the deleted job reappear.
+      await qc.cancelQueries({ queryKey: ['jobs'] })
+      // Snapshot for rollback if the request fails
+      const snapshot = qc.getQueriesData<JobsPage>({ queryKey: ['jobs'] })
+      // Optimistically remove from every cached page immediately
       qc.setQueriesData<JobsPage>({ queryKey: ['jobs'] }, old =>
         old ? { ...old, jobs: old.jobs.filter(j => j.id !== jobId), total: Math.max(0, old.total - 1) } : old
       )
+      return { snapshot }
+    },
+    onSuccess: () => {
+      toast('Job deleted')
       setSelectedJob(null)
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
     },
-    onError: (e: Error) => toast(e.message, false),
+    onError: (e: Error, _jobId, ctx) => {
+      // Restore previous cache state on failure
+      ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data))
+      toast(e.message, false)
+    },
   })
 
   const bulkDeleteSelected = useMutation({
-    // Pass the IDs as the variable so we can use them in onSuccess after selectedIds is cleared
     mutationFn: (ids: string[]) => apiFetch('/jobs/bulk-delete', {
       method: 'DELETE',
       body: JSON.stringify({ job_ids: ids }),
     }),
-    onSuccess: (d: unknown, ids) => {
-      const count = (d as { deleted: number }).deleted
-      toast(count === 1 ? '1 job deleted' : `${count} jobs deleted`)
-      // Remove immediately from every cached jobs page
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: ['jobs'] })
+      const snapshot = qc.getQueriesData<JobsPage>({ queryKey: ['jobs'] })
       const idSet = new Set(ids)
       qc.setQueriesData<JobsPage>({ queryKey: ['jobs'] }, old =>
-        old ? { ...old, jobs: old.jobs.filter(j => !idSet.has(j.id)), total: Math.max(0, old.total - count) } : old
+        old ? { ...old, jobs: old.jobs.filter(j => !idSet.has(j.id)), total: Math.max(0, old.total - ids.length) } : old
       )
+      return { snapshot }
+    },
+    onSuccess: (d: unknown) => {
+      const count = (d as { deleted: number }).deleted
+      toast(count === 1 ? '1 job deleted' : `${count} jobs deleted`)
       exitSelection()
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
     },
-    onError: (e: Error) => toast(e.message, false),
+    onError: (e: Error, _ids, ctx) => {
+      ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data))
+      toast(e.message, false)
+    },
   })
 
   // ── Helpers ────────────────────────────────────────────────────────────────
