@@ -13,4 +13,8 @@ COPY . .
 RUN mkdir -p /app/data
 
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --timeout-keep-alive 75: keep idle HTTP connections alive for 75s.
+# Default is 5s — Cloudflare reuses connections from its pool for longer,
+# causing it to send a request on a connection uvicorn already closed → 504.
+# 75s matches Cloudflare's origin keep-alive window.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "75"]

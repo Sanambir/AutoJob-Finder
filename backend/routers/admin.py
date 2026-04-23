@@ -11,7 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import get_db, _DB_PATH
 from models import User, Job, Resume, ActivityLog, SavedJob
 from services.auth_service import get_current_user
 
@@ -79,7 +79,7 @@ def get_overview(admin: User = Depends(require_admin), db: Session = Depends(get
     # ── DB size ──
     db_size = 0
     try:
-        db_size = os.path.getsize("./workfinderx.db")
+        db_size = os.path.getsize(_DB_PATH)
     except Exception:
         pass
 
@@ -397,7 +397,7 @@ def system_health(admin: User = Depends(require_admin), db: Session = Depends(ge
 
     db_size = 0
     try:
-        db_size = os.path.getsize("./workfinderx.db")
+        db_size = os.path.getsize(_DB_PATH)
     except Exception:
         pass
 

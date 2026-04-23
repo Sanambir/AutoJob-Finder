@@ -151,7 +151,9 @@ def get_job(job_id: str, current_user: User = Depends(get_current_user), db: Ses
 def delete_job(job_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        # Idempotent — already deleted or never existed for this user.
+        # Return 200 so double-clicks / stale UI state never show an error.
+        return {"deleted": job_id}
     db.delete(job)
     db.commit()
     return {"deleted": job_id}
