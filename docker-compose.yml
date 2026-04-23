@@ -48,12 +48,12 @@ services:
       - "80"                        # internal only — Coolify's Traefik routes to this
     depends_on:
       - backend
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    # No health check — nginx starts in <1s (confirmed by logs) and Traefik
+    # waits for "healthy" status before routing, so a health check creates a
+    # 10s+ gap where nothing serves requests ("no available server").
+    # Without a health check the container is always considered healthy and
+    # Traefik routes to it immediately on start.
+    #
     # Give nginx 30s to finish serving in-flight requests before Docker kills
     # it. Without this, Docker sends SIGKILL immediately on deploy and active
     # requests get dropped mid-response.
