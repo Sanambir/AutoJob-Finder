@@ -6,6 +6,8 @@ import { apiFetch } from '../api/client'
 import { useToast } from './Toast'
 import type { User } from '../types'
 
+const BANNER_KEY = 'wfx_504_banner_dismissed'
+
 export default function Layout() {
   const user    = useAuthStore(s => s.user)
   const setAuth = useAuthStore(s => s.setAuth)
@@ -13,6 +15,9 @@ export default function Layout() {
   const toast   = useToast()
   const [sending, setSending] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  const [banner504Dismissed, setBanner504Dismissed] = useState(
+    () => localStorage.getItem(BANNER_KEY) === '1'
+  )
 
   // Refresh user state from server on every page load.
   // Zustand persists to localStorage so is_verified / is_admin can go stale.
@@ -49,6 +54,21 @@ export default function Layout() {
     <div className="flex h-screen overflow-hidden bg-[#111111]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
+        {!banner504Dismissed && (
+          <div className="flex items-center gap-3 px-5 py-2.5 bg-blue-950/60 border-b border-blue-700/30 text-blue-300 text-xs flex-shrink-0">
+            <span className="material-symbols-outlined text-base flex-shrink-0">info</span>
+            <span className="flex-1">
+              Some users are experiencing brief 504 errors when navigating between pages — if this happens, a quick page refresh fixes it. We're working on a permanent fix.
+            </span>
+            <button
+              onClick={() => { localStorage.setItem(BANNER_KEY, '1'); setBanner504Dismissed(true) }}
+              className="text-blue-500 hover:text-blue-300 transition-colors flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              <span className="material-symbols-outlined text-base">close</span>
+            </button>
+          </div>
+        )}
         {showBanner && (
           <div className="flex items-center gap-3 px-5 py-2.5 bg-amber-950/60 border-b border-amber-700/30 text-amber-300 text-xs flex-shrink-0">
             <span className="material-symbols-outlined text-base">mail</span>
