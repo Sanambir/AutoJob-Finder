@@ -104,13 +104,35 @@ export default function FeedPage() {
     onError: (e: Error) => toast(e.message, false),
   })
 
+  const deleteJob = useMutation({
+    mutationFn: (jobId: string) => apiFetch(`/jobs/${jobId}`, { method: 'DELETE' }),
+    onSuccess: (_data, jobId) => {
+      toast('Job deleted')
+      // Remove immediately from every cached jobs page — don't wait for refetch
+      qc.setQueriesData<JobsPage>({ queryKey: ['jobs'] }, old =>
+        old ? { ...old, jobs: old.jobs.filter(j => j.id !== jobId), total: Math.max(0, old.total - 1) } : old
+      )
+      setSelectedJob(null)
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+    },
+    onError: (e: Error) => toast(e.message, false),
+  })
+
   const bulkDeleteSelected = useMutation({
-    mutationFn: () => apiFetch('/jobs/bulk-delete', {
+    // Pass the IDs as the variable so we can use them in onSuccess after selectedIds is cleared
+    mutationFn: (ids: string[]) => apiFetch('/jobs/bulk-delete', {
       method: 'DELETE',
-      body: JSON.stringify({ job_ids: [...selectedIds] }),
+      body: JSON.stringify({ job_ids: ids }),
     }),
-    onSuccess: (d: unknown) => {
-      toast(`Deleted ${(d as { deleted: number }).deleted} jobs`)
+    onSuccess: (d: unknown, ids) => {
+      const count = (d as { deleted: number }).deleted
+      toast(count === 1 ? '1 job deleted' : `${count} jobs deleted`)
+      // Remove immediately from every cached jobs page
+      const idSet = new Set(ids)
+      qc.setQueriesData<JobsPage>({ queryKey: ['jobs'] }, old =>
+        old ? { ...old, jobs: old.jobs.filter(j => !idSet.has(j.id)), total: Math.max(0, old.total - count) } : old
+      )
       setSelectedIds(new Set())
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
@@ -129,6 +151,10 @@ export default function FeedPage() {
 
   function selectAll() {
     setSelectedIds(new Set(jobs.map(j => j.id)))
+  }
+
+  function startSelect(id: string) {
+    setSelectedIds(new Set([id]))
   }
 
   async function toggleBookmark(job: Job) {
@@ -258,7 +284,7 @@ export default function FeedPage() {
           </div>
 
           <button
-            onClick={() => { if (confirm(`Delete ${selectedIds.size} jobs? This cannot be undone.`)) bulkDeleteSelected.mutate() }}
+            onClick={() => { if (confirm(`Delete ${selectedIds.size} jobs? This cannot be undone.`)) bulkDeleteSelected.mutate([...selectedIds]) }}
             disabled={bulkDeleteSelected.isPending}
             className="px-3 py-1.5 bg-red-500/10 text-red-400 text-xs font-bold rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-50 border border-red-500/20"
           >
@@ -366,6 +392,7 @@ export default function FeedPage() {
                   selectable={selectionMode}
                   selected={selectedIds.has(job.id)}
                   onSelect={toggleSelect}
+                  onStartSelect={startSelect}
                 />
               ))}
             </div>
@@ -397,6 +424,7 @@ export default function FeedPage() {
         job={selectedJob}
         onClose={() => setSelectedJob(null)}
         onStageChange={() => qc.invalidateQueries({ queryKey: ['jobs'] })}
+        onDelete={jobId => { deleteJob.mutate(jobId) }}
       />
     </div>
   )

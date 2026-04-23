@@ -9,6 +9,7 @@ interface Props {
   job: Job | null
   onClose: () => void
   onStageChange?: (job: Job, stage: string) => void
+  onDelete?: (jobId: string) => void
 }
 
 const KANBAN_STAGES = ['discovered', 'applied', 'interview', 'offer', 'rejected'] as const
@@ -19,7 +20,7 @@ function daysUntil(dateStr: string | null): number | null {
   return Math.ceil(diff / 86_400_000)
 }
 
-export default function JobDrawer({ job, onClose, onStageChange }: Props) {
+export default function JobDrawer({ job, onClose, onStageChange, onDelete }: Props) {
   const [notes, setNotes]               = useState('')
   const [savingNotes, setSavingNotes]   = useState(false)
   const [descOpen, setDescOpen]         = useState(false)
@@ -202,9 +203,20 @@ export default function JobDrawer({ job, onClose, onStageChange }: Props) {
               )}
             </div>
           </div>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors ml-4 flex-shrink-0">
-            <span className="material-symbols-outlined">close</span>
-          </button>
+          <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+            {onDelete && (
+              <button
+                onClick={() => { if (confirm('Delete this job? This cannot be undone.')) onDelete(job.id) }}
+                className="text-white/25 hover:text-red-400 transition-colors"
+                title="Delete job"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>delete</span>
+              </button>
+            )}
+            <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+          </div>
         </div>
 
         {/* Scrollable body */}
