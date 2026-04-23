@@ -47,14 +47,17 @@ services:
     expose:
       - "80"                        # internal only — Coolify's Traefik routes to this
     depends_on:
-      backend:
-        condition: service_healthy  # don't start nginx until backend is ready
+      - backend
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
+    # Give nginx 30s to finish serving in-flight requests before Docker kills
+    # it. Without this, Docker sends SIGKILL immediately on deploy and active
+    # requests get dropped mid-response.
+    stop_grace_period: 30s
     networks:
       - workfinderx
 
