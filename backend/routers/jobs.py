@@ -147,6 +147,32 @@ def get_job(job_id: str, current_user: User = Depends(get_current_user), db: Ses
     return _to_record(job)
 
 
+# ── BulkJobIds must be defined here so bulk_delete (below) can use it.
+# bulk_delete MUST be registered before delete_job because FastAPI matches
+# routes in registration order. DELETE /jobs/bulk-delete has two path
+# segments — same as DELETE /jobs/{job_id}. If {job_id} is registered first,
+# "bulk-delete" is swallowed as a job_id value and bulk_delete is never called.
+class BulkJobIds(BaseModel):
+    job_ids: List[str]
+
+
+@router.delete("/jobs/bulk-delete")
+def bulk_delete(
+    body: BulkJobIds,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete multiple jobs by ID."""
+    deleted = 0
+    for job_id in body.job_ids[:50]:
+        job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
+        if job:
+            db.delete(job)
+            deleted += 1
+    db.commit()
+    return {"deleted": deleted}
+
+
 @router.delete("/jobs/{job_id}")
 def delete_job(job_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
@@ -562,9 +588,8 @@ def update_deadline(
 
 # ── Bulk actions ──────────────────────────────────────────────────────────────
 
-class BulkJobIds(BaseModel):
-    job_ids: List[str]
-
+# BulkJobIds is defined earlier in this file (before delete_job) so that
+# the bulk-delete route is registered before the parameterized {job_id} route.
 
 class BulkStageUpdate(BaseModel):
     job_ids: List[str]
@@ -606,23 +631,6 @@ def bulk_stage(
             updated += 1
     db.commit()
     return {"updated": updated}
-
-
-@router.delete("/jobs/bulk-delete")
-def bulk_delete(
-    body: BulkJobIds,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Delete multiple jobs."""
-    deleted = 0
-    for job_id in body.job_ids[:50]:
-        job = db.query(Job).filter(Job.id == job_id, Job.user_id == current_user.id).first()
-        if job:
-            db.delete(job)
-            deleted += 1
-    db.commit()
-    return {"deleted": deleted}
 
 
 def create_job_record(user_id: str, job_data: dict, db: Session = None) -> str:
