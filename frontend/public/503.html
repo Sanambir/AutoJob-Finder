@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WorkfinderX — Updating</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: #0e0e0e;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 40px;
+    }
+
+    .logo-mark {
+      width: 40px;
+      height: 40px;
+      background: #fff;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-mark svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .logo-text {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 20px;
+      padding: 40px 36px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .spinner-wrap {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 24px;
+      position: relative;
+    }
+
+    .spinner {
+      width: 56px;
+      height: 56px;
+      border: 2px solid rgba(255,255,255,0.08);
+      border-top-color: rgba(255,255,255,0.7);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 14px;
+      color: rgba(255,255,255,0.45);
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+
+    .refresh-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #fff;
+      color: #000;
+      border: none;
+      border-radius: 12px;
+      padding: 11px 22px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .refresh-btn:hover { opacity: 0.88; }
+
+    .refresh-btn svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    .countdown {
+      margin-top: 20px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.2);
+    }
+
+    .countdown span {
+      color: rgba(255,255,255,0.4);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M20 7H4C2.9 7 2 7.9 2 9v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2z" fill="#000"/>
+        <path d="M16 3H8C6.9 3 6 3.9 6 5v2h12V5c0-1.1-.9-2-2-2z" fill="#000"/>
+        <circle cx="12" cy="14" r="2" fill="#fff"/>
+      </svg>
+    </div>
+    <span class="logo-text">WorkfinderX</span>
+  </div>
+
+  <div class="card">
+    <div class="spinner-wrap">
+      <div class="spinner"></div>
+    </div>
+
+    <h1>Updating the app</h1>
+    <p>
+      We're deploying a new version. This usually takes under a minute.
+      The page will refresh automatically when we're back online.
+    </p>
+
+    <button class="refresh-btn" onclick="location.reload()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+      </svg>
+      Refresh now
+    </button>
+
+    <p class="countdown">Auto-refreshing in <span id="t">15</span>s</p>
+  </div>
+
+  <script>
+    // Auto-refresh countdown
+    let secs = 15
+    const el = document.getElementById('t')
+    const tick = setInterval(() => {
+      secs--
+      el.textContent = secs
+      if (secs <= 0) { clearInterval(tick); location.reload() }
+    }, 1000)
+  </script>
+</body>
+</html>

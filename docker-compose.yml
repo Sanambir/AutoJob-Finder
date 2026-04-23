@@ -26,6 +26,15 @@ services:
       - DB_PATH=/app/data/workfinderx.db
     volumes:
       - db_data:/app/data           # named volume — survives redeployments
+    healthcheck:
+      # Coolify uses this to decide when the new backend container is ready
+      # before routing traffic to it. Keeps the old container alive until
+      # the new one passes, eliminating the "no available server" gap.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - workfinderx
 
@@ -38,7 +47,14 @@ services:
     expose:
       - "80"                        # internal only — Coolify's Traefik routes to this
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy  # don't start nginx until backend is ready
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - workfinderx
 
