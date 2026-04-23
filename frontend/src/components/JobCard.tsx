@@ -35,11 +35,9 @@ interface Props {
   selectable?: boolean
   selected?: boolean
   onSelect?: (id: string, checked: boolean) => void
-  // Per-card: clicking the hover checkbox when NOT in selection mode
-  onStartSelect?: (id: string) => void
 }
 
-export default function JobCard({ job, bookmarked, onClick, onBookmark, selectable, selected, onSelect, onStartSelect }: Props) {
+export default function JobCard({ job, bookmarked, onClick, onBookmark, selectable, selected, onSelect }: Props) {
   const isLive = IN_PROGRESS.includes(job.status)
   const dl = deadlineBadge(job.deadline)
 
@@ -51,12 +49,12 @@ export default function JobCard({ job, bookmarked, onClick, onBookmark, selectab
         ${selected ? 'border-white/30 bg-[#1e1e1e]' : 'border-white/[0.06]'}
       `}
     >
-      {/* Top-right: live pulse (hidden on hover if selectable), bulk checkbox, or hover-to-select checkbox */}
+      {/* Live pulse — in-progress indicator */}
       {isLive && !selectable && (
-        <span className={`absolute top-3 right-3 w-2 h-2 bg-blue-400 rounded-full animate-pulse ${onStartSelect ? 'group-hover:opacity-0' : ''}`} />
+        <span className="absolute top-3 right-3 w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
       )}
 
-      {/* Bulk selection checkbox (always visible in selection mode) */}
+      {/* Checkbox — only shown when in selection mode */}
       {selectable && (
         <div className="absolute top-3 right-3" onClick={e => e.stopPropagation()}>
           <input
@@ -64,22 +62,6 @@ export default function JobCard({ job, bookmarked, onClick, onBookmark, selectab
             checked={!!selected}
             onChange={e => onSelect?.(job.id, e.target.checked)}
             className="w-4 h-4 accent-white cursor-pointer"
-          />
-        </div>
-      )}
-
-      {/* Hover checkbox — appears on hover outside selection mode to start per-card selection */}
-      {!selectable && onStartSelect && (
-        <div
-          className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={e => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={false}
-            onChange={e => { if (e.target.checked) onStartSelect(job.id) }}
-            className="w-4 h-4 accent-white cursor-pointer"
-            title="Select job"
           />
         </div>
       )}

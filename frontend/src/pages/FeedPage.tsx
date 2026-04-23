@@ -26,11 +26,15 @@ export default function FeedPage() {
   const [page, setPage] = useState(1)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectionMode, setSelectionMode] = useState(false)
   const [bulkStage, setBulkStage] = useState('')
   const toast = useToast()
   const qc = useQueryClient()
 
-  const selectionMode = selectedIds.size > 0
+  function exitSelection() {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+  }
 
   // Main jobs query
   const { data, isLoading } = useQuery({
@@ -85,7 +89,7 @@ export default function FeedPage() {
     }),
     onSuccess: (d: unknown) => {
       toast(`Queued ${(d as { queued: number }).queued} jobs for cover letter generation`)
-      setSelectedIds(new Set())
+      exitSelection()
       qc.invalidateQueries({ queryKey: ['jobs'] })
     },
     onError: (e: Error) => toast(e.message, false),
@@ -98,7 +102,7 @@ export default function FeedPage() {
     }),
     onSuccess: (d: unknown) => {
       toast(`Moved ${(d as { updated: number }).updated} jobs`)
-      setSelectedIds(new Set())
+      exitSelection()
       qc.invalidateQueries({ queryKey: ['jobs'] })
     },
     onError: (e: Error) => toast(e.message, false),
@@ -133,7 +137,7 @@ export default function FeedPage() {
       qc.setQueriesData<JobsPage>({ queryKey: ['jobs'] }, old =>
         old ? { ...old, jobs: old.jobs.filter(j => !idSet.has(j.id)), total: Math.max(0, old.total - count) } : old
       )
-      setSelectedIds(new Set())
+      exitSelection()
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
     },
@@ -151,10 +155,6 @@ export default function FeedPage() {
 
   function selectAll() {
     setSelectedIds(new Set(jobs.map(j => j.id)))
-  }
-
-  function startSelect(id: string) {
-    setSelectedIds(new Set([id]))
   }
 
   async function toggleBookmark(job: Job) {
@@ -205,7 +205,7 @@ export default function FeedPage() {
             {FILTERS.map(f => (
               <button
                 key={f.value}
-                onClick={() => { setFilter(f.value); setPage(1); setSelectedIds(new Set()) }}
+                onClick={() => { setFilter(f.value); setPage(1); exitSelection() }}
                 className={`px-2.5 md:px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap flex-shrink-0
                   ${filter === f.value
                     ? 'bg-white text-black'
@@ -236,13 +236,13 @@ export default function FeedPage() {
                 Clear Low
               </button>
             )}
-            {/* Select all / deselect */}
-            {jobs.length > 0 && (
+            {/* Select button — only shown when NOT in selection mode */}
+            {jobs.length > 0 && !selectionMode && (
               <button
-                onClick={selectionMode ? () => setSelectedIds(new Set()) : selectAll}
+                onClick={() => setSelectionMode(true)}
                 className="px-2.5 md:px-3 py-1.5 bg-white/5 text-white/50 text-xs font-semibold rounded-full hover:bg-white/10 hover:text-white transition-all whitespace-nowrap"
               >
-                {selectionMode ? 'Deselect' : 'Select all'}
+                Select
               </button>
             )}
           </div>
@@ -252,46 +252,69 @@ export default function FeedPage() {
       {/* Bulk action bar */}
       {selectionMode && (
         <div className="flex-shrink-0 px-4 md:px-8 py-3 bg-white/[0.03] border-b border-white/[0.04] flex items-center gap-2 md:gap-3 flex-wrap">
-          <span className="text-white/60 text-xs font-semibold">{selectedIds.size} selected</span>
-
-          <button
-            onClick={() => bulkTailor.mutate()}
-            disabled={bulkTailor.isPending}
-            className="px-3 py-1.5 bg-white text-black text-xs font-bold rounded-lg hover:bg-white/90 transition-colors disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined align-middle mr-1" style={{ fontSize: 13 }}>auto_awesome</span>
-            Generate Cover Letters
-          </button>
-
-          <div className="flex items-center gap-1">
-            <select
-              value={bulkStage}
-              onChange={e => setBulkStage(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white/60 text-xs focus:outline-none"
+          {/* Selection controls */}
+          <div className="flex items-center gap-2">
+            <span className="text-white/60 text-xs font-semibold">
+              {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'None selected'}
+            </span>
+            <button
+              onClick={selectAll}
+              className="text-white/40 hover:text-white text-xs underline underline-offset-2 transition-colors"
             >
-              <option value="">Move to stage…</option>
-              {KANBAN_STAGES.map(s => <option key={s} value={s} className="bg-[#1a1a1a] capitalize">{s}</option>)}
-            </select>
-            {bulkStage && (
+              All
+            </button>
+            {selectedIds.size > 0 && (
               <button
-                onClick={() => { bulkStageUpdate.mutate(bulkStage); setBulkStage('') }}
-                disabled={bulkStageUpdate.isPending}
-                className="px-3 py-1.5 bg-white/10 text-white text-xs font-semibold rounded-lg hover:bg-white/20 transition-colors disabled:opacity-50"
+                onClick={() => setSelectedIds(new Set())}
+                className="text-white/40 hover:text-white text-xs underline underline-offset-2 transition-colors"
               >
-                Apply
+                None
               </button>
             )}
           </div>
 
-          <button
-            onClick={() => { if (confirm(`Delete ${selectedIds.size} jobs? This cannot be undone.`)) bulkDeleteSelected.mutate([...selectedIds]) }}
-            disabled={bulkDeleteSelected.isPending}
-            className="px-3 py-1.5 bg-red-500/10 text-red-400 text-xs font-bold rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-50 border border-red-500/20"
-          >
-            Delete Selected
-          </button>
+          {selectedIds.size > 0 && (
+            <>
+              <button
+                onClick={() => bulkTailor.mutate()}
+                disabled={bulkTailor.isPending}
+                className="px-3 py-1.5 bg-white text-black text-xs font-bold rounded-lg hover:bg-white/90 transition-colors disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined align-middle mr-1" style={{ fontSize: 13 }}>auto_awesome</span>
+                Cover Letters
+              </button>
 
-          <button onClick={() => setSelectedIds(new Set())} className="ml-auto text-white/30 hover:text-white text-xs transition-colors">
+              <div className="flex items-center gap-1">
+                <select
+                  value={bulkStage}
+                  onChange={e => setBulkStage(e.target.value)}
+                  className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white/60 text-xs focus:outline-none"
+                >
+                  <option value="">Move to stage…</option>
+                  {KANBAN_STAGES.map(s => <option key={s} value={s} className="bg-[#1a1a1a] capitalize">{s}</option>)}
+                </select>
+                {bulkStage && (
+                  <button
+                    onClick={() => { bulkStageUpdate.mutate(bulkStage); setBulkStage('') }}
+                    disabled={bulkStageUpdate.isPending}
+                    className="px-3 py-1.5 bg-white/10 text-white text-xs font-semibold rounded-lg hover:bg-white/20 transition-colors disabled:opacity-50"
+                  >
+                    Apply
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={() => { if (confirm(`Delete ${selectedIds.size} job${selectedIds.size > 1 ? 's' : ''}? This cannot be undone.`)) bulkDeleteSelected.mutate([...selectedIds]) }}
+                disabled={bulkDeleteSelected.isPending}
+                className="px-3 py-1.5 bg-red-500/10 text-red-400 text-xs font-bold rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-50 border border-red-500/20"
+              >
+                Delete
+              </button>
+            </>
+          )}
+
+          <button onClick={exitSelection} className="ml-auto text-white/30 hover:text-white text-xs transition-colors">
             Cancel
           </button>
         </div>
@@ -392,7 +415,6 @@ export default function FeedPage() {
                   selectable={selectionMode}
                   selected={selectedIds.has(job.id)}
                   onSelect={toggleSelect}
-                  onStartSelect={startSelect}
                 />
               ))}
             </div>
