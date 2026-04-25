@@ -302,21 +302,33 @@ async def search_jobs(
     if not request.keywords and not current_user.resume_text:
         raise HTTPException(status_code=400, detail="Provide keywords or upload a resume first")
 
-    # ── Daily search limit (skip for admins) ─────────────────────────────────
+    # ── Search limit — 24-hour rolling window (skip for admins) ─────────────
     if not current_user.is_admin:
-        today = datetime.date.today().isoformat()
+        now   = datetime.datetime.utcnow()
         tier  = current_user.tier or "free"
         limit = SEARCH_LIMITS.get(tier, 3)
 
-        # Reset counter if it's a new day
-        if current_user.last_search_date != today:
+        # Parse the stored window-start timestamp.
+        # Old rows may store "YYYY-MM-DD" (calendar-day format) — treat as
+        # midnight UTC that day so the 24h window is still reasonable.
+        window_start: datetime.datetime | None = None
+        if current_user.last_search_date:
+            try:
+                window_start = datetime.datetime.fromisoformat(current_user.last_search_date)
+            except ValueError:
+                window_start = datetime.datetime.fromisoformat(
+                    current_user.last_search_date + "T00:00:00"
+                )
+
+        # Reset if no window has started yet OR 24 hours have elapsed
+        if window_start is None or (now - window_start).total_seconds() >= 86400:
             current_user.daily_searches_used = 0
-            current_user.last_search_date = today
+            current_user.last_search_date = now.isoformat()
 
         if current_user.daily_searches_used >= limit:
             raise HTTPException(
                 status_code=429,
-                detail=f"Daily search limit reached ({limit} searches/day on {tier} plan). Upgrade to Premium for more searches.",
+                detail=f"Search limit reached ({limit} searches per 24 hours on {tier} plan). Upgrade to Premium for more searches.",
             )
 
         current_user.daily_searches_used = (current_user.daily_searches_used or 0) + 1
