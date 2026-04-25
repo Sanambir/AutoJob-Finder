@@ -56,4 +56,6 @@ def save_config() -> None:
 _persisted = _load_persisted_config()
 app_config = {
     "match_threshold": _persisted.get("match_threshold", MATCH_THRESHOLD),
+    # Site-wide banner: {"message": "...", "color": "info|warning|success|error"} or None
+    "banner": _persisted.get("banner", None),
 }

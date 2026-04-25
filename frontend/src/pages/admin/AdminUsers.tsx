@@ -166,6 +166,13 @@ export default function AdminUsers() {
                           </span>
                         </button>
                       )}
+                      <button
+                        onClick={() => action(`/admin/users/${u.id}/reset-searches`, 'POST', `Search count reset for ${u.email}`)}
+                        title={`Reset search count (currently ${u.daily_searches_used} used)`}
+                        className="p-1.5 rounded-lg text-white/30 hover:text-emerald-400 hover:bg-emerald-950/20 transition-all"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>restart_alt</span>
+                      </button>
                       {u.id !== me?.id && (
                         <button
                           onClick={() => setConfirmDelete(u)}

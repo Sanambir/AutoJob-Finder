@@ -8,12 +8,14 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import func, desc
+from pydantic import BaseModel
+from sqlalchemy import func, desc, text
 from sqlalchemy.orm import Session
 
 from database import get_db, _DB_PATH
 from models import User, Job, Resume, ActivityLog, SavedJob
 from services.auth_service import get_current_user
+from config import app_config, save_config
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -507,3 +509,213 @@ def admin_clear_activity(
     db.query(ActivityLog).delete()
     db.commit()
     return {"deleted": True}
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+@router.get("/analytics")
+def get_analytics(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    now = datetime.utcnow()
+    thirty_ago = (now - timedelta(days=30)).isoformat()
+    seven_ago  = (now - timedelta(days=7)).isoformat()
+
+    # Platform distribution
+    platform_rows = (
+        db.query(Job.platform, func.count(Job.id), func.avg(Job.match_score))
+        .group_by(Job.platform)
+        .order_by(func.count(Job.id).desc())
+        .all()
+    )
+    platforms = [
+        {"platform": r[0] or "unknown", "count": r[1], "avg_score": round(r[2]) if r[2] else None}
+        for r in platform_rows
+    ]
+
+    # Daily job volume (last 30 days)
+    job_daily = (
+        db.query(func.strftime("%Y-%m-%d", Job.created_at).label("day"), func.count(Job.id))
+        .filter(Job.created_at >= thirty_ago)
+        .group_by("day").order_by("day").all()
+    )
+
+    # Daily signups (last 30 days)
+    user_daily = (
+        db.query(func.strftime("%Y-%m-%d", User.created_at).label("day"), func.count(User.id))
+        .filter(User.created_at >= thirty_ago)
+        .group_by("day").order_by("day").all()
+    )
+
+    # Top companies
+    top_companies = (
+        db.query(Job.company, func.count(Job.id).label("count"))
+        .filter(Job.company.isnot(None), Job.company != "")
+        .group_by(Job.company).order_by(func.count(Job.id).desc())
+        .limit(10).all()
+    )
+
+    # Top job titles
+    top_titles = (
+        db.query(Job.title, func.count(Job.id).label("count"))
+        .filter(Job.title.isnot(None), Job.title != "")
+        .group_by(Job.title).order_by(func.count(Job.id).desc())
+        .limit(10).all()
+    )
+
+    # Top search keywords — parsed from ActivityLog search messages
+    # Messages look like: "Found X jobs for 'KEYWORD' in 'LOCATION'"
+    import re
+    search_logs = (
+        db.query(ActivityLog.message)
+        .filter(ActivityLog.event_type == "search", ActivityLog.created_at >= thirty_ago)
+        .order_by(ActivityLog.created_at.desc())
+        .limit(500).all()
+    )
+    keyword_counts: dict = {}
+    for (msg,) in search_logs:
+        m = re.search(r"for '([^']+)'", msg or "")
+        if m:
+            kw = m.group(1).strip().lower()
+            if kw and kw != "jobs matching your resume":
+                keyword_counts[kw] = keyword_counts.get(kw, 0) + 1
+    top_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)[:15]
+
+    # Searches per day (last 7 days)
+    search_daily = (
+        db.query(func.strftime("%Y-%m-%d", ActivityLog.created_at).label("day"), func.count(ActivityLog.id))
+        .filter(ActivityLog.event_type == "search", ActivityLog.created_at >= seven_ago)
+        .group_by("day").order_by("day").all()
+    )
+
+    # Free vs premium breakdown
+    tier_rows = db.query(User.tier, func.count(User.id)).group_by(User.tier).all()
+    tiers = {(r[0] or "free"): r[1] for r in tier_rows}
+
+    return {
+        "platforms": platforms,
+        "job_daily":    [{"day": r[0], "count": r[1]} for r in job_daily],
+        "user_daily":   [{"day": r[0], "count": r[1]} for r in user_daily],
+        "search_daily": [{"day": r[0], "count": r[1]} for r in search_daily],
+        "top_keywords": [{"keyword": k, "count": c} for k, c in top_keywords],
+        "top_companies":[{"company": r[0], "count": r[1]} for r in top_companies],
+        "top_titles":   [{"title": r[0], "count": r[1]} for r in top_titles],
+        "tiers": tiers,
+    }
+
+
+# ── API Usage ─────────────────────────────────────────────────────────────────
+
+@router.get("/api-usage")
+def get_api_usage(admin: User = Depends(require_admin)):
+    from services.adzuna_scraper import _calls_today, _cache, _MAX_DAILY_CALLS
+    calls = _calls_today()
+    cache_size = len(_cache)
+    return {
+        "adzuna": {
+            "calls_today": calls,
+            "limit": _MAX_DAILY_CALLS,
+            "remaining": max(0, _MAX_DAILY_CALLS - calls),
+            "pct_used": round((calls / _MAX_DAILY_CALLS) * 100),
+            "cache_entries": cache_size,
+        }
+    }
+
+
+# ── Maintenance ───────────────────────────────────────────────────────────────
+
+@router.post("/maintenance/vacuum")
+def vacuum_db(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Run SQLite VACUUM to reclaim disk space from deleted rows."""
+    db.execute(text("VACUUM"))
+    db.commit()
+    size = 0
+    try:
+        size = os.path.getsize(_DB_PATH)
+    except Exception:
+        pass
+    return {"message": "VACUUM complete", "db_size_bytes": size}
+
+
+@router.delete("/maintenance/old-logs")
+def cleanup_old_logs(
+    days: int = 30,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete activity logs older than N days."""
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    deleted = db.query(ActivityLog).filter(ActivityLog.created_at < cutoff).delete()
+    db.commit()
+    return {"deleted": deleted, "cutoff_days": days}
+
+
+# ── Broadcast ─────────────────────────────────────────────────────────────────
+
+class BroadcastBody(BaseModel):
+    message: str
+    event_type: str = "announcement"
+
+
+@router.post("/broadcast")
+def broadcast_message(
+    body: BroadcastBody,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Send a notification to every user's activity feed."""
+    if not body.message.strip():
+        raise HTTPException(400, "Message cannot be empty")
+    users = db.query(User.id).all()
+    entries = [
+        ActivityLog(
+            user_id=uid,
+            event_type=body.event_type,
+            message=body.message.strip(),
+        )
+        for (uid,) in users
+    ]
+    db.bulk_save_objects(entries)
+    db.commit()
+    return {"sent_to": len(entries)}
+
+
+# ── Site-wide banner ─────────────────────────────────────────────────────────
+
+class BannerBody(BaseModel):
+    message: str
+    color: str = "info"  # info | warning | success | error
+
+
+@router.put("/banner")
+def set_banner(body: BannerBody, admin: User = Depends(require_admin)):
+    """Set a site-wide banner visible to all users."""
+    if not body.message.strip():
+        raise HTTPException(400, "Message cannot be empty")
+    app_config["banner"] = {"message": body.message.strip(), "color": body.color}
+    save_config()
+    return app_config["banner"]
+
+
+@router.delete("/banner")
+def clear_banner(admin: User = Depends(require_admin)):
+    """Clear the active site-wide banner."""
+    app_config["banner"] = None
+    save_config()
+    return {"cleared": True}
+
+
+# ── Per-user actions ──────────────────────────────────────────────────────────
+
+@router.post("/users/{user_id}/reset-searches")
+def reset_search_count(
+    user_id: str,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Reset a user's daily search counter so they can search again immediately."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.daily_searches_used = 0
+    user.last_search_date = None
+    db.commit()
+    return {"message": f"Search count reset for {user.email}"}

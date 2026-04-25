@@ -3,11 +3,12 @@ import { LogoMark } from '../../components/Logo'
 import { useAuthStore } from '../../store/auth'
 
 const NAV = [
-  { to: '/admin',          icon: 'dashboard',     label: 'Dashboard', end: true },
-  { to: '/admin/users',    icon: 'group',          label: 'Users' },
-  { to: '/admin/jobs',     icon: 'work',           label: 'Jobs' },
-  { to: '/admin/system',   icon: 'monitor_heart',  label: 'System' },
-  { to: '/admin/activity', icon: 'history',        label: 'Activity' },
+  { to: '/admin',             icon: 'dashboard',     label: 'Dashboard', end: true },
+  { to: '/admin/users',       icon: 'group',          label: 'Users' },
+  { to: '/admin/jobs',        icon: 'work',           label: 'Jobs' },
+  { to: '/admin/analytics',   icon: 'bar_chart',      label: 'Analytics' },
+  { to: '/admin/system',      icon: 'monitor_heart',  label: 'System' },
+  { to: '/admin/activity',    icon: 'history',        label: 'Activity' },
 ]
 
 export default function AdminLayout() {

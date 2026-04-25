@@ -21,6 +21,7 @@ import AdminUsers from './pages/admin/AdminUsers'
 import AdminJobs from './pages/admin/AdminJobs'
 import AdminSystem from './pages/admin/AdminSystem'
 import AdminActivity from './pages/admin/AdminActivity'
+import AdminAnalytics from './pages/admin/AdminAnalytics'
 import PrivacyPage from './pages/PrivacyPage'
 import SupportPage from './pages/SupportPage'
 import DocsPage from './pages/DocsPage'
@@ -119,7 +120,8 @@ export default function App() {
             <Route path="users"    element={<AdminUsers />} />
             <Route path="jobs"     element={<AdminJobs />} />
             <Route path="system"   element={<AdminSystem />} />
-            <Route path="activity" element={<AdminActivity />} />
+            <Route path="activity"  element={<AdminActivity />} />
+            <Route path="analytics" element={<AdminAnalytics />} />
           </Route>
 
           {/* Main app */}

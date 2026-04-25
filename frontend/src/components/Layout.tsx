@@ -6,7 +6,19 @@ import { apiFetch } from '../api/client'
 import { useToast } from './Toast'
 import type { User } from '../types'
 
-const BANNER_KEY = 'wfx_504_banner_dismissed'
+interface SiteBanner { message: string | null; color: 'info' | 'warning' | 'success' | 'error' }
+
+const BANNER_DISMISS_KEY = 'wfx_banner_dismissed'
+
+const BANNER_STYLES: Record<string, string> = {
+  info:    'bg-blue-950/60 border-blue-700/30 text-blue-300',
+  warning: 'bg-amber-950/60 border-amber-700/30 text-amber-300',
+  success: 'bg-emerald-950/60 border-emerald-700/30 text-emerald-300',
+  error:   'bg-red-950/60 border-red-700/30 text-red-300',
+}
+const BANNER_ICON: Record<string, string> = {
+  info: 'info', warning: 'warning', success: 'check_circle', error: 'error',
+}
 
 export default function Layout() {
   const user    = useAuthStore(s => s.user)
@@ -15,9 +27,8 @@ export default function Layout() {
   const toast   = useToast()
   const [sending, setSending] = useState(false)
   const [dismissed, setDismissed] = useState(false)
-  const [banner504Dismissed, setBanner504Dismissed] = useState(
-    () => localStorage.getItem(BANNER_KEY) === '1'
-  )
+  const [siteBanner, setSiteBanner] = useState<SiteBanner | null>(null)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
 
   // Refresh user state from server on every page load.
   // Zustand persists to localStorage so is_verified / is_admin can go stale.
@@ -34,6 +45,20 @@ export default function Layout() {
           || msg === 'User not found'
         if (isAuthError) logout()
       })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch site-wide banner
+  useEffect(() => {
+    apiFetch<SiteBanner>('/banner')
+      .then(b => {
+        if (b?.message) {
+          // Dismiss state is keyed to the message content so new messages always show
+          const dismissedMsg = sessionStorage.getItem(BANNER_DISMISS_KEY)
+          setSiteBanner(b)
+          setBannerDismissed(dismissedMsg === b.message)
+        }
+      })
+      .catch(() => {}) // non-critical
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const showBanner = user && !user.is_verified && !dismissed
@@ -54,15 +79,13 @@ export default function Layout() {
     <div className="flex h-screen overflow-hidden bg-[#111111]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
-        {!banner504Dismissed && (
-          <div className="flex items-center gap-3 px-5 py-2.5 bg-blue-950/60 border-b border-blue-700/30 text-blue-300 text-xs flex-shrink-0">
-            <span className="material-symbols-outlined text-base flex-shrink-0">info</span>
-            <span className="flex-1">
-              Some users are experiencing brief 504 errors when navigating between pages — if this happens, a quick page refresh fixes it. We're working on a permanent fix.
-            </span>
+        {siteBanner?.message && !bannerDismissed && (
+          <div className={`flex items-center gap-3 px-5 py-2.5 border-b text-xs flex-shrink-0 ${BANNER_STYLES[siteBanner.color] ?? BANNER_STYLES.info}`}>
+            <span className="material-symbols-outlined text-base flex-shrink-0">{BANNER_ICON[siteBanner.color] ?? 'info'}</span>
+            <span className="flex-1">{siteBanner.message}</span>
             <button
-              onClick={() => { localStorage.setItem(BANNER_KEY, '1'); setBanner504Dismissed(true) }}
-              className="text-blue-500 hover:text-blue-300 transition-colors flex-shrink-0"
+              onClick={() => { sessionStorage.setItem(BANNER_DISMISS_KEY, siteBanner.message!); setBannerDismissed(true) }}
+              className="opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
               aria-label="Dismiss"
             >
               <span className="material-symbols-outlined text-base">close</span>

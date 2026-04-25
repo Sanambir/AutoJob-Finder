@@ -1,5 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../../api/client'
+import { useToast } from '../../components/Toast'
 
 interface SystemInfo {
   smtp: { configured: boolean; host: string; port: number; from_email: string }
@@ -54,11 +56,74 @@ function Row({ label, value, ok }: { label: string; value: React.ReactNode; ok?:
 }
 
 export default function AdminSystem() {
+  const toast = useToast()
+  const qc    = useQueryClient()
   const { data, isLoading, refetch } = useQuery<SystemInfo>({
     queryKey: ['admin-system'],
     queryFn: () => apiFetch('/admin/system'),
     refetchInterval: 15_000,
   })
+
+  const [vacuuming, setVacuuming]   = useState(false)
+  const [cleaning, setCleaning]     = useState(false)
+  const [cleanDays, setCleanDays]   = useState(30)
+  const [bannerMsg, setBannerMsg]   = useState('')
+  const [bannerColor, setBannerColor] = useState<'info'|'warning'|'success'|'error'>('info')
+  const [savingBanner, setSavingBanner] = useState(false)
+  const [clearingBanner, setClearingBanner] = useState(false)
+  const [activeBanner, setActiveBanner] = useState<{ message: string; color: string } | null>(null)
+
+  async function runVacuum() {
+    setVacuuming(true)
+    try {
+      const res = await apiFetch<{ freed_bytes: number; message: string }>('/admin/maintenance/vacuum', { method: 'POST' })
+      toast(res.message || 'VACUUM complete')
+      qc.invalidateQueries({ queryKey: ['admin-system'] })
+    } catch (e) { toast((e as Error).message, false) }
+    finally { setVacuuming(false) }
+  }
+
+  async function runCleanup() {
+    setCleaning(true)
+    try {
+      const res = await apiFetch<{ deleted: number; message: string }>(`/admin/maintenance/old-logs?days=${cleanDays}`, { method: 'DELETE' })
+      toast(res.message || `Deleted ${res.deleted} old logs`)
+      qc.invalidateQueries({ queryKey: ['admin-system'] })
+    } catch (e) { toast((e as Error).message, false) }
+    finally { setCleaning(false) }
+  }
+
+  // Load current active banner on mount
+  useEffect(() => {
+    apiFetch<{ message: string | null; color: string }>('/banner')
+      .then(b => { if (b?.message) setActiveBanner(b as { message: string; color: string }) })
+      .catch(() => {})
+  }, [])
+
+  async function saveBanner() {
+    if (!bannerMsg.trim()) return
+    setSavingBanner(true)
+    try {
+      const res = await apiFetch<{ message: string; color: string }>('/admin/banner', {
+        method: 'PUT',
+        body: JSON.stringify({ message: bannerMsg.trim(), color: bannerColor }),
+      })
+      toast('Banner set')
+      setActiveBanner(res)
+      setBannerMsg('')
+    } catch (e) { toast((e as Error).message, false) }
+    finally { setSavingBanner(false) }
+  }
+
+  async function clearBanner() {
+    setClearingBanner(true)
+    try {
+      await apiFetch('/admin/banner', { method: 'DELETE' })
+      toast('Banner cleared')
+      setActiveBanner(null)
+    } catch (e) { toast((e as Error).message, false) }
+    finally { setClearingBanner(false) }
+  }
 
   if (isLoading || !data) {
     return (
@@ -172,6 +237,141 @@ export default function AdminSystem() {
                 {database.stuck_jobs} job{database.stuck_jobs !== 1 ? 's' : ''} appear stuck in an in-progress state. They will be reset to &lsquo;error&rsquo; on next server restart.
               </p>
             </div>
+          )}
+        </Card>
+
+        {/* Maintenance */}
+        <Card title="Maintenance" icon="build">
+          <div className="space-y-5">
+            {/* VACUUM */}
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold text-white/70">VACUUM Database</p>
+                <p className="text-[11px] text-white/30 mt-0.5">Reclaim space from deleted rows and defragment the SQLite file.</p>
+              </div>
+              <button
+                onClick={runVacuum}
+                disabled={vacuuming}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/[0.08] rounded-lg text-xs text-white/60 hover:text-white disabled:opacity-40 transition-all"
+              >
+                {vacuuming
+                  ? <span className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+                  : <span className="material-symbols-outlined" style={{ fontSize: 13 }}>compress</span>
+                }
+                VACUUM
+              </button>
+            </div>
+
+            {/* Clean old logs */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-white/70">Delete Old Activity Logs</p>
+                <p className="text-[11px] text-white/30 mt-0.5">Remove notification log entries older than N days.</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={cleanDays}
+                    onChange={e => setCleanDays(Number(e.target.value))}
+                    className="w-16 bg-white/5 border border-white/[0.08] rounded-lg px-2 py-1 text-xs text-white text-center focus:outline-none focus:border-white/20"
+                  />
+                  <span className="text-xs text-white/30">days</span>
+                </div>
+              </div>
+              <button
+                onClick={runCleanup}
+                disabled={cleaning}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-red-950/30 hover:bg-red-950/50 border border-red-900/30 rounded-lg text-xs text-red-400/70 hover:text-red-400 disabled:opacity-40 transition-all"
+              >
+                {cleaning
+                  ? <span className="w-3 h-3 border border-red-400/30 border-t-red-400 rounded-full animate-spin" />
+                  : <span className="material-symbols-outlined" style={{ fontSize: 13 }}>delete_sweep</span>
+                }
+                Clean
+              </button>
+            </div>
+          </div>
+        </Card>
+
+        {/* Site Banner */}
+        <Card title="Site-Wide Banner" icon="campaign">
+          <p className="text-[11px] text-white/30 mb-4">
+            Display a dismissible banner at the top of the app for all users.
+          </p>
+
+          {/* Active banner preview */}
+          {activeBanner && (
+            <div className={`flex items-center gap-3 rounded-lg px-4 py-2.5 mb-4 text-xs border ${
+              activeBanner.color === 'warning' ? 'bg-amber-950/60 border-amber-700/30 text-amber-300' :
+              activeBanner.color === 'success' ? 'bg-emerald-950/60 border-emerald-700/30 text-emerald-300' :
+              activeBanner.color === 'error'   ? 'bg-red-950/60 border-red-700/30 text-red-300' :
+              'bg-blue-950/60 border-blue-700/30 text-blue-300'
+            }`}>
+              <span className="material-symbols-outlined text-base flex-shrink-0">
+                {activeBanner.color === 'warning' ? 'warning' : activeBanner.color === 'success' ? 'check_circle' : activeBanner.color === 'error' ? 'error' : 'info'}
+              </span>
+              <span className="flex-1">{activeBanner.message}</span>
+              <span className="text-[10px] opacity-50 uppercase tracking-wider flex-shrink-0">Live</span>
+            </div>
+          )}
+
+          {/* Color selector */}
+          <div className="flex gap-2 mb-3">
+            {(['info','warning','success','error'] as const).map(c => (
+              <button
+                key={c}
+                onClick={() => setBannerColor(c)}
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-all ${
+                  bannerColor === c ? 'opacity-100 scale-[1.02]' : 'opacity-40 hover:opacity-70'
+                } ${
+                  c === 'info'    ? 'bg-blue-950/60 border-blue-700/30 text-blue-300' :
+                  c === 'warning' ? 'bg-amber-950/60 border-amber-700/30 text-amber-300' :
+                  c === 'success' ? 'bg-emerald-950/60 border-emerald-700/30 text-emerald-300' :
+                  'bg-red-950/60 border-red-700/30 text-red-300'
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={bannerMsg}
+              onChange={e => setBannerMsg(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && saveBanner()}
+              placeholder="Banner message…"
+              maxLength={300}
+              className="flex-1 bg-white/5 border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-white/20"
+            />
+            <button
+              onClick={saveBanner}
+              disabled={savingBanner || !bannerMsg.trim()}
+              className="flex items-center gap-1.5 px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/[0.1] rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition-all"
+            >
+              {savingBanner
+                ? <span className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+                : <span className="material-symbols-outlined" style={{ fontSize: 14 }}>publish</span>
+              }
+              Set
+            </button>
+            {activeBanner && (
+              <button
+                onClick={clearBanner}
+                disabled={clearingBanner}
+                className="flex items-center gap-1.5 px-3 py-2 bg-red-950/30 hover:bg-red-950/50 border border-red-900/30 rounded-lg text-xs text-red-400/70 hover:text-red-400 disabled:opacity-40 transition-all"
+              >
+                {clearingBanner
+                  ? <span className="w-3 h-3 border border-red-400/30 border-t-red-400 rounded-full animate-spin" />
+                  : <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                }
+                Clear
+              </button>
+            )}
+          </div>
+          {bannerMsg.length > 0 && (
+            <p className="text-[10px] text-white/20 mt-1.5 text-right">{bannerMsg.length}/300</p>
           )}
         </Card>
 
