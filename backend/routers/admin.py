@@ -398,10 +398,24 @@ def system_health(admin: User = Depends(require_admin), db: Session = Depends(ge
     from services.scheduler import scheduler
 
     db_size = 0
+    wal_size = 0
     try:
         db_size = os.path.getsize(_DB_PATH)
+        wal_path = _DB_PATH + "-wal"
+        if os.path.exists(wal_path):
+            wal_size = os.path.getsize(wal_path)
     except Exception:
         pass
+
+    # SQLite internals
+    try:
+        page_size  = db.execute(text("PRAGMA page_size")).scalar()  or 4096
+        page_count = db.execute(text("PRAGMA page_count")).scalar() or 0
+        free_pages = db.execute(text("PRAGMA freelist_count")).scalar() or 0
+        fragmentation_pct = round((free_pages / page_count * 100) if page_count > 0 else 0, 1)
+    except Exception:
+        page_size = page_count = free_pages = 0
+        fragmentation_pct = 0.0
 
     # Count stuck in-progress jobs (>30 min old)
     thirty_ago = (datetime.utcnow() - timedelta(minutes=30)).isoformat()
@@ -411,6 +425,10 @@ def system_health(admin: User = Depends(require_admin), db: Session = Depends(ge
         .filter(Job.status.in_(in_progress), Job.updated_at < thirty_ago)
         .scalar() or 0
     )
+
+    # Jobs by status
+    status_rows = db.query(Job.status, func.count(Job.id)).group_by(Job.status).all()
+    jobs_by_status = {s: c for s, c in status_rows}
 
     # Scheduler jobs
     try:
@@ -438,7 +456,6 @@ def system_health(admin: User = Depends(require_admin), db: Session = Depends(ge
         "scheduler": {
             "running": scheduler_running,
             "jobs": scheduled_jobs,
-            "stuck_jobs": stuck,
         },
         "security": {
             "cookie_secure": COOKIE_SECURE,
@@ -446,14 +463,19 @@ def system_health(admin: User = Depends(require_admin), db: Session = Depends(ge
             "secret_key_default": SECRET_KEY == "change-me-in-production-please",
         },
         "database": {
-            "size_bytes": db_size,
-            "counts": {
-                "users":         db.query(func.count(User.id)).scalar() or 0,
-                "jobs":          db.query(func.count(Job.id)).scalar() or 0,
-                "resumes":       db.query(func.count(Resume.id)).scalar() or 0,
-                "activity_logs": db.query(func.count(ActivityLog.id)).scalar() or 0,
-                "saved_jobs":    db.query(func.count(SavedJob.id)).scalar() or 0,
-            },
+            "size_bytes":        db_size,
+            "wal_size_bytes":    wal_size,
+            "page_size":         page_size,
+            "page_count":        page_count,
+            "free_pages":        free_pages,
+            "fragmentation_pct": fragmentation_pct,
+            "users":             db.query(func.count(User.id)).scalar() or 0,
+            "jobs":              db.query(func.count(Job.id)).scalar() or 0,
+            "resumes":           db.query(func.count(Resume.id)).scalar() or 0,
+            "activity_logs":     db.query(func.count(ActivityLog.id)).scalar() or 0,
+            "saved_jobs":        db.query(func.count(SavedJob.id)).scalar() or 0,
+            "stuck_jobs":        stuck,
+            "jobs_by_status":    jobs_by_status,
         },
     }
 

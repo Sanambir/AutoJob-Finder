@@ -6,16 +6,22 @@ import { useToast } from '../../components/Toast'
 interface SystemInfo {
   smtp: { configured: boolean; host: string; port: number; from_email: string }
   gemini: { configured: boolean; model: string }
-  scheduler: { running: boolean; jobs: { id: string; name: string; next_run: string | null }[] }
+  scheduler: { running: boolean; jobs: { id: string; next_run: string | null }[] }
   security: { cookie_secure: boolean; secret_key_set: boolean; admin_email: string }
   database: {
     size_bytes: number
+    wal_size_bytes: number
+    page_size: number
+    page_count: number
+    free_pages: number
+    fragmentation_pct: number
     users: number
     jobs: number
     resumes: number
     activity_logs: number
     saved_jobs: number
     stuck_jobs: number
+    jobs_by_status: Record<string, number>
   }
 }
 
@@ -193,7 +199,7 @@ export default function AdminSystem() {
                 <p className="text-xs text-white/25">No scheduled jobs</p>
               ) : scheduler.jobs.map(j => (
                 <div key={j.id} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-2">
-                  <span className="text-xs text-white/60 truncate max-w-[160px]">{j.name}</span>
+                  <span className="text-xs text-white/60 truncate max-w-[160px]">{j.id}</span>
                   <span className="text-[10px] text-white/30 font-mono flex-shrink-0 ml-2">
                     {j.next_run ? new Date(j.next_run).toLocaleTimeString() : 'N/A'}
                   </span>
@@ -217,24 +223,81 @@ export default function AdminSystem() {
 
         {/* Database */}
         <Card title="Database" icon="database">
-          <div className="grid md:grid-cols-2 gap-x-10">
-            <div>
-              <Row label="File size"    value={fmt(database.size_bytes)} />
-              <Row label="Stuck jobs"   value={database.stuck_jobs} ok={database.stuck_jobs === 0} />
+          {/* Size + fragmentation */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-white/[0.03] rounded-lg px-4 py-3">
+              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">File size</p>
+              <p className="text-lg font-bold text-white">{fmt(database.size_bytes)}</p>
+              {database.wal_size_bytes > 0 && (
+                <p className="text-[10px] text-white/30 mt-0.5">WAL: {fmt(database.wal_size_bytes)}</p>
+              )}
             </div>
-            <div>
-              <Row label="Users"        value={database.users} />
-              <Row label="Jobs"         value={database.jobs} />
-              <Row label="Resumes"      value={database.resumes} />
-              <Row label="Activity logs" value={database.activity_logs} />
-              <Row label="Saved jobs"   value={database.saved_jobs} />
+            <div className="bg-white/[0.03] rounded-lg px-4 py-3">
+              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Fragmentation</p>
+              <p className={`text-lg font-bold ${database.fragmentation_pct > 20 ? 'text-amber-400' : 'text-white'}`}>
+                {database.fragmentation_pct}%
+              </p>
+              <p className="text-[10px] text-white/30 mt-0.5">{database.free_pages} free / {database.page_count} pages</p>
             </div>
           </div>
+
+          {/* Fragmentation bar */}
+          <div className="mb-4">
+            <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  database.fragmentation_pct > 20 ? 'bg-amber-400' :
+                  database.fragmentation_pct > 10 ? 'bg-yellow-500' : 'bg-emerald-400'
+                }`}
+                style={{ width: `${Math.min(database.fragmentation_pct, 100)}%` }}
+              />
+            </div>
+            {database.fragmentation_pct > 20 && (
+              <p className="text-[10px] text-amber-400/70 mt-1">VACUUM recommended — high fragmentation</p>
+            )}
+          </div>
+
+          {/* Row counts */}
+          <div className="grid md:grid-cols-2 gap-x-8 mb-4">
+            <div>
+              <Row label="Users"         value={database.users.toLocaleString()} />
+              <Row label="Jobs"          value={database.jobs.toLocaleString()} />
+              <Row label="Resumes"       value={database.resumes.toLocaleString()} />
+            </div>
+            <div>
+              <Row label="Activity logs" value={database.activity_logs.toLocaleString()} />
+              <Row label="Saved jobs"    value={database.saved_jobs.toLocaleString()} />
+              <Row label="Stuck jobs"    value={database.stuck_jobs} ok={database.stuck_jobs === 0} />
+            </div>
+          </div>
+
+          {/* Jobs by status */}
+          {Object.keys(database.jobs_by_status).length > 0 && (
+            <div>
+              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Jobs by status</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(database.jobs_by_status)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([status, count]) => (
+                    <span key={status} className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                      status === 'emailed'         ? 'bg-emerald-950/50 text-emerald-400' :
+                      status === 'error'           ? 'bg-red-950/50 text-red-400' :
+                      status === 'below_threshold' ? 'bg-zinc-800 text-white/40' :
+                      status === 'scored'          ? 'bg-blue-950/50 text-blue-400' :
+                      'bg-white/5 text-white/50'
+                    }`}>
+                      {status} · {count.toLocaleString()}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          )}
+
           {database.stuck_jobs > 0 && (
             <div className="mt-4 flex items-center gap-2 bg-amber-950/20 border border-amber-900/30 rounded-lg px-4 py-3">
               <span className="material-symbols-outlined text-amber-400" style={{ fontSize: 16 }}>warning</span>
               <p className="text-xs text-amber-300/80">
-                {database.stuck_jobs} job{database.stuck_jobs !== 1 ? 's' : ''} appear stuck in an in-progress state. They will be reset to &lsquo;error&rsquo; on next server restart.
+                {database.stuck_jobs} job{database.stuck_jobs !== 1 ? 's' : ''} stuck in an in-progress state — will reset to &lsquo;error&rsquo; on next restart.
               </p>
             </div>
           )}
