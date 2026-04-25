@@ -7,10 +7,8 @@ import { useToast } from '../components/Toast'
 import type { Resume, User } from '../types'
 
 const PLATFORMS = [
-  { id: 'linkedin',     label: 'LinkedIn',     stable: true },
-  { id: 'indeed',       label: 'Indeed',       stable: true },
-  { id: 'glassdoor',    label: 'Glassdoor',    stable: false },
-  { id: 'zip_recruiter', label: 'ZipRecruiter', stable: false },
+  { id: 'linkedin', label: 'LinkedIn', stable: true },
+  { id: 'adzuna',   label: 'Adzuna',   stable: true },
 ] as const
 
 const HOURS_OPTIONS = [
@@ -35,12 +33,13 @@ export default function SearchPage() {
   const navigate = useNavigate()
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const [keywords, setKeywords]         = useState('')
-  const [location, setLocation]         = useState('Remote')
-  const [platforms, setPlatforms]       = useState<string[]>(['linkedin', 'indeed'])
-  const [resultsPerSite, setResults]    = useState(10)
-  const [hoursOld, setHoursOld]         = useState(168)
-  const [autoPipeline, setAutoPipeline] = useState(true)
+  const [keywords, setKeywords]           = useState('')
+  const [location, setLocation]           = useState('Remote')
+  const [countryIndeed, setCountryIndeed] = useState('usa')
+  const [platforms, setPlatforms]         = useState<string[]>(['linkedin', 'adzuna'])
+  const [resultsPerSite, setResults]      = useState(10)
+  const [hoursOld, setHoursOld]           = useState(168)
+  const [autoPipeline, setAutoPipeline]   = useState(true)
   const [searching, setSearching]       = useState(false)
   const [uploading, setUploading]       = useState(false)
 
@@ -104,6 +103,7 @@ export default function SearchPage() {
           applicant_name: user?.name ?? 'Applicant',
           keywords: keywords.trim(),
           location: location.trim() || 'Remote',
+          country_indeed: countryIndeed,
           platforms,
           results_per_site: resultsPerSite,
           hours_old: hoursOld,
@@ -205,16 +205,37 @@ export default function SearchPage() {
             />
           </div>
 
-          {/* Location */}
-          <div>
-            <label className="text-white/60 text-xs font-semibold uppercase tracking-wider block mb-2">Location</label>
-            <input
-              type="text"
-              value={location}
-              onChange={e => setLocation(e.target.value)}
-              placeholder="Remote, New York, London…"
-              className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/25"
-            />
+          {/* Location + Country */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-white/60 text-xs font-semibold uppercase tracking-wider block mb-2">Location</label>
+              <input
+                type="text"
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                placeholder="Remote, New York, London…"
+                className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/25"
+              />
+            </div>
+            <div>
+              <label className="text-white/60 text-xs font-semibold uppercase tracking-wider block mb-2">Job Region</label>
+              <select
+                value={countryIndeed}
+                onChange={e => setCountryIndeed(e.target.value)}
+                className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-white/25"
+              >
+                <option value="usa">🇺🇸 USA</option>
+                <option value="canada">🇨🇦 Canada</option>
+                <option value="uk">🇬🇧 United Kingdom</option>
+                <option value="australia">🇦🇺 Australia</option>
+                <option value="india">🇮🇳 India</option>
+                <option value="germany">🇩🇪 Germany</option>
+                <option value="france">🇫🇷 France</option>
+                <option value="singapore">🇸🇬 Singapore</option>
+                <option value="netherlands">🇳🇱 Netherlands</option>
+                <option value="new zealand">🇳🇿 New Zealand</option>
+              </select>
+            </div>
           </div>
 
           {/* Platforms */}

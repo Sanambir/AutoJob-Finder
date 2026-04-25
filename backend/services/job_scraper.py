@@ -2,17 +2,15 @@ import pandas as pd
 from typing import List, Optional
 import logging
 
-from services.indeed_scraper import scrape_indeed
+from services.adzuna_scraper import scrape_adzuna
 
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_PLATFORMS = {"linkedin", "indeed", "glassdoor", "zip_recruiter"}
-
-# Platforms where hours_old is reliably supported.
-# Glassdoor returns "Error encountered in API response" when hours_old is passed.
-# ZipRecruiter ignores it and the parameter can cause empty results.
-_HOURS_OLD_SUPPORTED = {"linkedin", "indeed"}
+# linkedin  → jobspy (works fine from cloud IPs)
+# adzuna    → Adzuna API (replaces Indeed/Glassdoor/ZipRecruiter which all
+#             block datacenter IPs)
+SUPPORTED_PLATFORMS = {"linkedin", "adzuna"}
 
 
 def _clean(val) -> str:
@@ -52,88 +50,69 @@ def scrape_jobs(
     platforms: Optional[List[str]] = None,
     results_per_site: int = 10,
     hours_old: int = 72,
+    country_indeed: str = "usa",   # kept for API compat; used as Adzuna country
 ) -> List[dict]:
     """
-    Scrape jobs from multiple platforms independently.
+    Scrape jobs from supported platforms.
+    - linkedin  → jobspy (works from cloud IPs)
+    - adzuna    → Adzuna API with caching (covers Indeed/Glassdoor/ZipRecruiter
+                  data via Adzuna's publisher partnerships)
     One platform failing never prevents results from others.
     """
     try:
         from jobspy import scrape_jobs as _scrape
     except ImportError:
-        logger.error("python-jobspy not installed. Run: pip install python-jobspy")
-        return []
+        logger.error("python-jobspy not installed.")
+        _scrape = None
 
     if not platforms:
-        platforms = ["linkedin", "indeed"]
+        platforms = ["linkedin", "adzuna"]
     platforms = [p.lower() for p in platforms if p.lower() in SUPPORTED_PLATFORMS]
     if not platforms:
-        platforms = ["indeed"]
+        platforms = ["adzuna"]
 
-    # Detect remote-only searches.
     is_remote = location.strip().lower() in ("remote", "")
-
     all_jobs: List[dict] = []
 
     for platform in platforms:
         try:
-            # Indeed: use our custom RSS-based scraper instead of jobspy.
-            # jobspy's Indeed scraping is blocked by datacenter IPs; the RSS
-            # feed is a public endpoint that works from any IP.
-            if platform == "indeed":
-                platform_jobs = scrape_indeed(
+            # ── Adzuna ───────────────────────────────────────────────────────
+            if platform == "adzuna":
+                platform_jobs = scrape_adzuna(
                     keywords=keywords,
                     location=location,
                     results_wanted=results_per_site,
                     hours_old=hours_old,
+                    country=country_indeed,
                 )
-                logger.info("[indeed] Got %d jobs via RSS scraper", len(platform_jobs))
+                logger.info("[adzuna] Got %d jobs", len(platform_jobs))
                 all_jobs.extend(platform_jobs)
                 continue
 
-            kwargs: dict = dict(
-                site_name=[platform],
-                search_term=keywords,
-                results_wanted=results_per_site,
-                country_indeed="usa",
-                verbose=0,
-            )
+            # ── LinkedIn via jobspy ───────────────────────────────────────────
+            if platform == "linkedin" and _scrape:
+                kwargs: dict = dict(
+                    site_name=["linkedin"],
+                    search_term=keywords,
+                    results_wanted=min(results_per_site, 10),
+                    verbose=0,
+                    linkedin_fetch_description=True,
+                )
+                if is_remote:
+                    kwargs["is_remote"] = True
+                else:
+                    kwargs["location"] = location
 
-            if is_remote:
-                # Use jobspy's is_remote flag for remote-only searches — more
-                # reliable than passing "Remote" as a location string.
-                kwargs["is_remote"] = True
-            else:
-                # For location-based searches: pass the location string and
-                # do NOT set is_remote at all. Indeed in jobspy ignores the
-                # location parameter when is_remote=False is explicitly set,
-                # so omitting it lets the location do the work on all platforms.
-                kwargs["location"] = location
+                df: pd.DataFrame = _scrape(**kwargs)
+                if df is None or df.empty:
+                    logger.info("[linkedin] Returned 0 results")
+                    continue
 
-            # hours_old causes Glassdoor API errors and ZipRecruiter empty
-            # results — only apply it where it's reliably supported.
-            if platform in _HOURS_OLD_SUPPORTED:
-                kwargs["hours_old"] = hours_old
-
-            # LinkedIn requires extra per-listing HTTP calls to get full JD text.
-            # Each call fetches a full HTML page, so memory grows with result count.
-            # Cap LinkedIn results at 10 regardless of results_per_site to bound
-            # the number of description fetches and keep memory predictable.
-            if platform == "linkedin":
-                kwargs["linkedin_fetch_description"] = True
-                kwargs["results_wanted"] = min(results_per_site, 10)
-
-            df: pd.DataFrame = _scrape(**kwargs)
-
-            if df is None or df.empty:
-                logger.info("[%s] Returned 0 results", platform)
-                continue
-
-            platform_jobs = _parse_rows(df, platform)
-            logger.info("[%s] Got %d jobs", platform, len(platform_jobs))
-            all_jobs.extend(platform_jobs)
+                platform_jobs = _parse_rows(df, "linkedin")
+                logger.info("[linkedin] Got %d jobs", len(platform_jobs))
+                all_jobs.extend(platform_jobs)
 
         except Exception as e:
-            # Log but keep going so other platforms still contribute results.
             logger.warning("[%s] Scraping failed: %s", platform, e)
             continue
 

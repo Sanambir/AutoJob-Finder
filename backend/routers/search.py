@@ -70,6 +70,7 @@ class SearchRequest(BaseModel):
     applicant_name: str = "Applicant"
     keywords: str = ""
     location: str = DEFAULT_LOCATION
+    country_indeed: str = "usa"     # drives which indeed.com domain is used
     platforms: List[str] = ["linkedin", "indeed"]
     results_per_site: int = DEFAULT_RESULTS_EACH
     hours_old: int = 72
@@ -184,6 +185,7 @@ async def _run_search_pipeline(request: SearchRequest, _bypass_sem: bool = False
                         platforms=[p],
                         results_per_site=request.results_per_site,
                         hours_old=request.hours_old,
+                        country_indeed=request.country_indeed,
                     ),
                 ),
                 timeout=120.0,  # 2 min per platform; LinkedIn with descriptions is slow

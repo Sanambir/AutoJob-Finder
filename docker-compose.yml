@@ -24,6 +24,8 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL}
       - FRONTEND_URL=${FRONTEND_URL}
       - DB_PATH=/app/data/workfinderx.db
+      - ADZUNA_APP_ID=${ADZUNA_APP_ID}
+      - ADZUNA_APP_KEY=${ADZUNA_APP_KEY}
     volumes:
       - db_data:/app/data           # named volume — survives redeployments
     healthcheck:
