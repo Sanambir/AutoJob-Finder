@@ -2,6 +2,8 @@ import pandas as pd
 from typing import List, Optional
 import logging
 
+from services.indeed_scraper import scrape_indeed
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +76,20 @@ def scrape_jobs(
 
     for platform in platforms:
         try:
+            # Indeed: use our custom RSS-based scraper instead of jobspy.
+            # jobspy's Indeed scraping is blocked by datacenter IPs; the RSS
+            # feed is a public endpoint that works from any IP.
+            if platform == "indeed":
+                platform_jobs = scrape_indeed(
+                    keywords=keywords,
+                    location=location,
+                    results_wanted=results_per_site,
+                    hours_old=hours_old,
+                )
+                logger.info("[indeed] Got %d jobs via RSS scraper", len(platform_jobs))
+                all_jobs.extend(platform_jobs)
+                continue
+
             kwargs: dict = dict(
                 site_name=[platform],
                 search_term=keywords,
