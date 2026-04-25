@@ -17,10 +17,11 @@ router = APIRouter(prefix="/schedule", tags=["Schedule"])
 class ScheduleRequest(BaseModel):
     keywords: str = ""
     location: str = "Remote"
-    platforms: List[str] = ["indeed", "linkedin"]
+    platforms: List[str] = ["linkedin", "adzuna"]
     results_per_site: int = 10
     hours_old: int = 72
     auto_pipeline: bool = True
+    country_indeed: str = "usa"
     run_time: str = "09:00"   # HH:MM UTC
     enabled: bool = True
 
@@ -33,6 +34,7 @@ class ScheduleResponse(BaseModel):
     results_per_site: int
     hours_old: int
     auto_pipeline: bool
+    country_indeed: str
     run_time: str
     last_run: Optional[str]
 
@@ -62,6 +64,7 @@ def set_schedule(
     s.results_per_site = payload.results_per_site
     s.hours_old        = payload.hours_old
     s.auto_pipeline    = payload.auto_pipeline
+    s.country_indeed   = payload.country_indeed
     s.run_time         = payload.run_time
     s.enabled          = payload.enabled
     db.commit()
@@ -86,5 +89,6 @@ def _to_response(s: UserSchedule) -> ScheduleResponse:
         enabled=s.enabled, keywords=s.keywords, location=s.location,
         platforms=s.platforms or [], results_per_site=s.results_per_site,
         hours_old=s.hours_old, auto_pipeline=s.auto_pipeline,
+        country_indeed=s.country_indeed or "usa",
         run_time=s.run_time, last_run=s.last_run,
     )

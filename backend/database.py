@@ -83,5 +83,15 @@ def migrate_new_columns():
             cur.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
             log.info("DB migration: added users.%s", col_name)
 
+    # ── user_schedules table ──────────────────────────────────────────────────
+    cur.execute("PRAGMA table_info(user_schedules)")
+    existing_schedules = {row[1] for row in cur.fetchall()}
+    for col_name, col_type in [
+        ("country_indeed", "TEXT DEFAULT 'usa'"),
+    ]:
+        if col_name not in existing_schedules:
+            cur.execute(f"ALTER TABLE user_schedules ADD COLUMN {col_name} {col_type}")
+            log.info("DB migration: added user_schedules.%s", col_name)
+
     conn.commit()
     conn.close()

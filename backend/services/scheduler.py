@@ -33,10 +33,11 @@ def _run_user_search(user_id: str):
             applicant_name=user.name,
             keywords=sched.keywords,
             location=sched.location,
-            platforms=sched.platforms or ["indeed", "linkedin"],
+            platforms=sched.platforms or ["linkedin", "adzuna"],
             results_per_site=sched.results_per_site,
             hours_old=sched.hours_old,
             auto_pipeline=sched.auto_pipeline,
+            country_indeed=sched.country_indeed or "usa",
             user_id=user_id,
         )
 

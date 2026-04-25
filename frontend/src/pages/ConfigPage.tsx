@@ -7,6 +7,19 @@ import type { AppConfig, Resume, Schedule } from '../types'
 
 const PRESETS = [60, 70, 75, 80, 85, 90]
 
+const PLATFORMS = [
+  { id: 'linkedin', label: 'LinkedIn' },
+  { id: 'adzuna',   label: 'Job Boards' },
+] as const
+
+const HOURS_OPTIONS = [
+  { value: 24,  label: '24 hrs' },
+  { value: 48,  label: '48 hrs' },
+  { value: 72,  label: '3 days' },
+  { value: 168, label: '7 days' },
+  { value: 336, label: '2 weeks' },
+]
+
 const TIMES = [
   '06:00', '07:00', '08:00', '09:00', '10:00',
   '12:00', '14:00', '16:00', '18:00', '20:00', '21:00',
@@ -20,10 +33,15 @@ const TIME_LABELS: Record<string, string> = {
 
 export default function ConfigPage() {
   const [threshold, setThreshold]         = useState(75)
-  const [schedEnabled, setSchedEnabled]   = useState(false)
-  const [schedTime, setSchedTime]         = useState('09:00')
-  const [schedKeywords, setSchedKeywords] = useState('')
-  const [schedLocation, setSchedLocation] = useState('Remote')
+  const [schedEnabled, setSchedEnabled]         = useState(false)
+  const [schedTime, setSchedTime]               = useState('09:00')
+  const [schedKeywords, setSchedKeywords]       = useState('')
+  const [schedLocation, setSchedLocation]       = useState('Remote')
+  const [schedPlatforms, setSchedPlatforms]     = useState<string[]>(['linkedin', 'adzuna'])
+  const [schedCountry, setSchedCountry]         = useState('usa')
+  const [schedResults, setSchedResults]         = useState(10)
+  const [schedHours, setSchedHours]             = useState(168)
+  const [schedAutoPipeline, setSchedAutoPipeline] = useState(true)
   const [apiOk, setApiOk]                 = useState<boolean | null>(null)
   const [savedAt, setSavedAt]             = useState<string | null>(null)
   const [saving, setSaving]               = useState(false)
@@ -54,6 +72,11 @@ export default function ConfigPage() {
       setSchedTime(sched.run_time || '09:00')
       setSchedKeywords(sched.keywords || '')
       setSchedLocation(sched.location || 'Remote')
+      setSchedPlatforms(sched.platforms?.length ? sched.platforms : ['linkedin', 'adzuna'])
+      setSchedCountry(sched.country_indeed || 'usa')
+      setSchedResults(sched.results_per_site || 10)
+      setSchedHours(sched.hours_old || 168)
+      setSchedAutoPipeline(sched.auto_pipeline ?? true)
     }
   }, [sched])
 
@@ -91,18 +114,18 @@ export default function ConfigPage() {
       })
       setThreshold(cfg.match_threshold)
 
-      const existingSched = sched
       await apiFetch('/schedule', {
         method: 'PUT',
         body: JSON.stringify({
           keywords:         schedKeywords.trim(),
           location:         schedLocation.trim() || 'Remote',
-          platforms:        existingSched?.platforms        ?? ['linkedin', 'indeed'],
-          results_per_site: existingSched?.results_per_site ?? 10,
-          hours_old:        existingSched?.hours_old        ?? 168,
-          auto_pipeline:    existingSched?.auto_pipeline    ?? true,
-          run_time: schedTime,
-          enabled:  schedEnabled,
+          platforms:        schedPlatforms,
+          results_per_site: schedResults,
+          hours_old:        schedHours,
+          auto_pipeline:    schedAutoPipeline,
+          country_indeed:   schedCountry,
+          run_time:         schedTime,
+          enabled:          schedEnabled,
         }),
       })
       qc.invalidateQueries({ queryKey: ['config', 'schedule'] })
@@ -316,19 +339,92 @@ export default function ConfigPage() {
                     />
                   </div>
 
-                  {/* Location */}
-                  <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Location</label>
-                    <input
-                      type="text"
-                      value={schedLocation}
-                      onChange={e => setSchedLocation(e.target.value)}
-                      placeholder="Remote, New York…"
-                      className="w-full bg-[#0a0a0a] border border-white/5 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/20"
-                    />
+                  {/* Location + Job Region */}
+                  <div className={`grid gap-3 ${schedPlatforms.includes('adzuna') ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Location</label>
+                      <input
+                        type="text"
+                        value={schedLocation}
+                        onChange={e => setSchedLocation(e.target.value)}
+                        placeholder="Remote, New York…"
+                        className="w-full bg-[#0a0a0a] border border-white/5 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/20"
+                      />
+                    </div>
+                    {schedPlatforms.includes('adzuna') && (
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Job Region</label>
+                        <select
+                          value={schedCountry}
+                          onChange={e => setSchedCountry(e.target.value)}
+                          className="w-full bg-[#0a0a0a] border border-white/5 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-white/20"
+                        >
+                          <option value="usa">🇺🇸 USA</option>
+                          <option value="canada">🇨🇦 Canada</option>
+                          <option value="uk">🇬🇧 United Kingdom</option>
+                          <option value="australia">🇦🇺 Australia</option>
+                          <option value="india">🇮🇳 India</option>
+                          <option value="germany">🇩🇪 Germany</option>
+                          <option value="france">🇫🇷 France</option>
+                          <option value="singapore">🇸🇬 Singapore</option>
+                          <option value="netherlands">🇳🇱 Netherlands</option>
+                          <option value="new zealand">🇳🇿 New Zealand</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Time */}
+                  {/* Platforms */}
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Platforms</label>
+                    <div className="flex gap-2">
+                      {PLATFORMS.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setSchedPlatforms(prev =>
+                            prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id]
+                          )}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            schedPlatforms.includes(p.id)
+                              ? 'bg-white text-black'
+                              : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Results per site + Posted within */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">
+                        Results / site: <span className="text-white/60">{schedResults}</span>
+                      </label>
+                      <input
+                        type="range" min={5} max={50} step={5}
+                        value={schedResults}
+                        onChange={e => setSchedResults(+e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Posted within</label>
+                      <select
+                        value={schedHours}
+                        onChange={e => setSchedHours(+e.target.value)}
+                        className="w-full bg-[#0a0a0a] border border-white/5 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-white/20"
+                      >
+                        {HOURS_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Run time */}
                   <div>
                     <label className="text-[10px] font-bold uppercase tracking-wider text-white/30 block mb-1.5">Run time</label>
                     <div className="flex items-center gap-3 bg-[#0a0a0a] rounded-lg px-3 py-2 border border-white/5">
@@ -342,6 +438,28 @@ export default function ConfigPage() {
                       </select>
                       <span className="text-[10px] text-white/20 uppercase font-bold tracking-widest">UTC</span>
                     </div>
+                  </div>
+
+                  {/* Auto pipeline */}
+                  <div className="flex items-center justify-between bg-[#0a0a0a] border border-white/5 rounded-lg px-3 py-2.5">
+                    <div>
+                      <p className="text-xs font-semibold text-white">Auto Pipeline</p>
+                      <p className="text-[10px] text-white/30">Score → tailor → email automatically</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSchedAutoPipeline(p => !p)}
+                      className="w-9 h-4.5 rounded-full relative transition-colors duration-200 flex-shrink-0"
+                      style={{ backgroundColor: schedAutoPipeline ? '#ffffff' : '#333' }}
+                    >
+                      <div
+                        className="absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all duration-200"
+                        style={{
+                          left: schedAutoPipeline ? '19px' : '2px',
+                          backgroundColor: schedAutoPipeline ? '#111111' : 'rgba(255,255,255,0.3)',
+                        }}
+                      />
+                    </button>
                   </div>
                 </div>
               </div>

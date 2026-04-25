@@ -108,11 +108,12 @@ class UserSchedule(Base):
     user_id          = Column(String, ForeignKey("users.id"), unique=True, nullable=False)
     keywords         = Column(String, default="")
     location         = Column(String, default="Remote")
-    platforms        = Column(JSON,   default=lambda: ["indeed", "linkedin"])
+    platforms        = Column(JSON,   default=lambda: ["linkedin", "adzuna"])
     results_per_site = Column(Integer, default=10)
     hours_old        = Column(Integer, default=72)
     auto_pipeline    = Column(Boolean, default=True)
-    run_time         = Column(String, default="09:00")   # HH:MM local time
+    country_indeed   = Column(String, default="usa")
+    run_time         = Column(String, default="09:00")   # HH:MM UTC
     enabled          = Column(Boolean, default=False)
     last_run         = Column(String, nullable=True)
 

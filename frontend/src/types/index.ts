@@ -78,8 +78,10 @@ export interface Schedule {
   results_per_site: number;
   hours_old: number;
   auto_pipeline: boolean;
+  country_indeed: string;
   run_time: string;
   enabled: boolean;
+  last_run?: string | null;
 }
 
 export interface AppConfig {
