@@ -7,8 +7,8 @@ import { useToast } from '../components/Toast'
 import type { Resume, User } from '../types'
 
 const PLATFORMS = [
-  { id: 'linkedin', label: 'LinkedIn', stable: true },
-  { id: 'adzuna',   label: 'Adzuna',   stable: true },
+  { id: 'linkedin', label: 'LinkedIn',   stable: true },
+  { id: 'adzuna',   label: 'Job Boards', stable: true },
 ] as const
 
 const HOURS_OPTIONS = [
@@ -205,8 +205,8 @@ export default function SearchPage() {
             />
           </div>
 
-          {/* Location + Country */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Location + Region (region only shown when Job Boards selected) */}
+          <div className={`grid gap-4 ${platforms.includes('adzuna') ? 'grid-cols-2' : 'grid-cols-1'}`}>
             <div>
               <label className="text-white/60 text-xs font-semibold uppercase tracking-wider block mb-2">Location</label>
               <input
@@ -217,25 +217,27 @@ export default function SearchPage() {
                 className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/25"
               />
             </div>
-            <div>
-              <label className="text-white/60 text-xs font-semibold uppercase tracking-wider block mb-2">Job Region</label>
-              <select
-                value={countryIndeed}
-                onChange={e => setCountryIndeed(e.target.value)}
-                className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-white/25"
-              >
-                <option value="usa">🇺🇸 USA</option>
-                <option value="canada">🇨🇦 Canada</option>
-                <option value="uk">🇬🇧 United Kingdom</option>
-                <option value="australia">🇦🇺 Australia</option>
-                <option value="india">🇮🇳 India</option>
-                <option value="germany">🇩🇪 Germany</option>
-                <option value="france">🇫🇷 France</option>
-                <option value="singapore">🇸🇬 Singapore</option>
-                <option value="netherlands">🇳🇱 Netherlands</option>
-                <option value="new zealand">🇳🇿 New Zealand</option>
-              </select>
-            </div>
+            {platforms.includes('adzuna') && (
+              <div>
+                <label className="text-white/60 text-xs font-semibold uppercase tracking-wider block mb-2">Job Region</label>
+                <select
+                  value={countryIndeed}
+                  onChange={e => setCountryIndeed(e.target.value)}
+                  className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-white/25"
+                >
+                  <option value="usa">🇺🇸 USA</option>
+                  <option value="canada">🇨🇦 Canada</option>
+                  <option value="uk">🇬🇧 United Kingdom</option>
+                  <option value="australia">🇦🇺 Australia</option>
+                  <option value="india">🇮🇳 India</option>
+                  <option value="germany">🇩🇪 Germany</option>
+                  <option value="france">🇫🇷 France</option>
+                  <option value="singapore">🇸🇬 Singapore</option>
+                  <option value="netherlands">🇳🇱 Netherlands</option>
+                  <option value="new zealand">🇳🇿 New Zealand</option>
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Platforms */}

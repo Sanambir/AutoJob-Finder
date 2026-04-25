@@ -112,6 +112,45 @@ def _set_cache(key: Tuple, results: List[dict]):
     _cache[key] = (results, time.time())
 
 
+def _detect_platform(url: str) -> str:
+    """Infer the real job board from the resolved URL."""
+    u = url.lower()
+    if "indeed.com"       in u: return "indeed"
+    if "linkedin.com"     in u: return "linkedin"
+    if "glassdoor.com"    in u: return "glassdoor"
+    if "ziprecruiter.com" in u: return "ziprecruiter"
+    if "monster.com"      in u: return "monster"
+    if "reed.co.uk"       in u: return "reed"
+    if "totaljobs.com"    in u: return "totaljobs"
+    if "jobsite.co.uk"    in u: return "jobsite"
+    if "seek.com.au"      in u: return "seek"
+    if "seek.co.nz"       in u: return "seek"
+    if "careerone.com.au" in u: return "careerone"
+    if "naukri.com"       in u: return "naukri"
+    if "shine.com"        in u: return "shine"
+    if "stepstone.de"     in u: return "stepstone"
+    if "xing.com"         in u: return "xing"
+    return "job board"
+
+
+def _resolve_url(redirect_url: str) -> tuple[str, str]:
+    """
+    Follow Adzuna's tracking redirect to get the real job posting URL.
+    Returns (resolved_url, platform_name).
+    Uses a HEAD request (no body download) so it's fast.
+    Falls back to the Adzuna redirect URL if resolution fails.
+    """
+    if not redirect_url:
+        return redirect_url, "job board"
+    try:
+        with httpx.Client(follow_redirects=True, timeout=5) as client:
+            resp = client.head(redirect_url)
+            final_url = str(resp.url)
+            return final_url, _detect_platform(final_url)
+    except Exception:
+        return redirect_url, "job board"
+
+
 def _fetch_from_api(
     keywords: str,
     location: str,
@@ -162,18 +201,23 @@ def _fetch_from_api(
 
     jobs: List[dict] = []
     for item in data.get("results", []):
-        company  = item.get("company", {})
-        loc      = item.get("location", {})
+        company    = item.get("company", {})
+        loc        = item.get("location", {})
         salary_min = item.get("salary_min") or ""
         salary_max = item.get("salary_max") or ""
+        redirect   = item.get("redirect_url") or ""
+
+        # Resolve the Adzuna tracking redirect to the actual job posting URL
+        # so users land directly on the real job page (Indeed, Glassdoor, etc.)
+        real_url, platform = _resolve_url(redirect)
 
         jobs.append({
             "title":       (item.get("title") or "").strip(),
             "company":     (company.get("display_name") or "").strip() if isinstance(company, dict) else "",
             "location":    (loc.get("display_name") or location).strip() if isinstance(loc, dict) else location,
-            "url":         item.get("redirect_url") or "",
+            "url":         real_url,
             "description": (item.get("description") or "No description available").strip(),
-            "platform":    "adzuna",
+            "platform":    platform,
             "date_posted": item.get("created", ""),
             "salary_min":  str(salary_min) if salary_min else "",
             "salary_max":  str(salary_max) if salary_max else "",
